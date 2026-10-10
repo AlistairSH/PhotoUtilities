@@ -29,6 +29,7 @@ photo-utils db check [--checksums]
 
 Processing/query commands accept `--state-dir`; see their `--help` for all
 options. The menu offers Doctor, Scan, Retouch, History & Database, and Quit.
+Submenu exit options are labelled Quit and exit the CLI; no Back navigation is implemented.
 Scan offers new acquisition or selection of an existing sheet. Only the
 interactive new-scan flow asks whether the sheet contains Polaroids; direct
 `scan` defaults to splitting/retouching unless `--retouch none` is supplied.

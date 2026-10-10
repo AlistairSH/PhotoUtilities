@@ -251,9 +251,9 @@ def run_interactive_menu() -> int:
     print("\nScan")
     print("  S) Scan a new sheet")
     print("  P) Process an existing Polaroid sheet (then retouch the prints)")
-    print("  B) Back")
-    scan_choice = prompt_choice("Select an action", "SPB", default="S")
-    if scan_choice == "b":
+    print("  Q) Quit")
+    scan_choice = prompt_choice("Select an action", "SPQ", default="S")
+    if scan_choice == "q":
         return 0
 
     root = default_root()

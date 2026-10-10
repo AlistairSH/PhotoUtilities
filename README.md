@@ -2,10 +2,21 @@
 
 An offline Mac CLI for Canon LiDE 400 scanner acquisition, four-print Polaroid
 sheet splitting, TIFF retouching, and SQLite processing history. It preserves
-source images and writes separate TIFF derivatives. Digital JPEG/HEIC/RAW
-ingestion, Apple Photos import, Photomator automation, Shortcuts, and watchers
+source images and writes separate TIFF derivatives. 
+
+Future features: Digital JPEG/HEIC/RAW ingestion, Apple Photos import, Photomator automation, Shortcuts, and watchers
 are not implemented.
 
+## Quick start
+
+1. Clone the repository and open its folder in your terminal or editor.
+2. Ask your favorite AI agent to set up the project: “Read AGENTS.md and PROJECT.md, create `.venv`, install the dependencies, install this CLI with `pip install -e .`, and run the tests.” Dependencies: Python 3.9+, Homebrew packages `sane-backends`, `imagemagick` (version 7), and `exiftool`; Python packages `numpy==2.0.2`, `opencv-python-headless==4.11.0.86`, and `tifffile==2024.8.30` (installed automatically from `setup.py`).
+3. From the repository folder, open the interactive menu:
+
+   ```sh
+   .venv/bin/photo-utils
+   ```
+   
 ## Installation
 
 Run from the project directory. Python 3.9 or newer is required; the Python

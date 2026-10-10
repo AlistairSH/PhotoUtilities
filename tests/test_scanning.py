@@ -82,6 +82,25 @@ class ScannerParsingTests(unittest.TestCase):
 
 
 class MenuTests(unittest.TestCase):
+    def test_quit_exits_from_main_scan_and_history_menus(self):
+        for answers, label in [(["q"], "Q) Quit"), (["s", "q"], "Q) Quit"),
+                               (["h", "9"], "9) Quit"), (["h", ""], "9) Quit")]:
+            with self.subTest(answers=answers):
+                with patch("builtins.input", side_effect=answers) as prompt, \
+                     patch("builtins.print") as printed, \
+                     patch("sys.stdin.isatty", return_value=True), \
+                     patch("photo_utils.cli.run_scan") as scan, \
+                     patch("photo_utils.cli.process_and_retouch") as process, \
+                     patch("photo_utils.cli.retouch") as retouch:
+                    self.assertEqual(main([]), 0)
+                self.assertEqual(prompt.call_count, len(answers))
+                output = "\n".join(str(call.args[0]) for call in printed.call_args_list)
+                self.assertIn(label, output)
+                self.assertNotIn("Back", output)
+                scan.assert_not_called()
+                process.assert_not_called()
+                retouch.assert_not_called()
+
     def test_prompt_choice_uses_conventional_default_notation(self):
         with patch("builtins.input", side_effect=["", "d"]):
             with patch("builtins.print") as printed:

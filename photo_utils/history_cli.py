@@ -120,7 +120,7 @@ def dispatch(args: Namespace) -> int:
 
 def menu() -> None:
     while True:
-        print('\nHistory & Database\n  1) List jobs by date\n  2) Browse recent jobs\n  3) View job details\n  4) Browse assets by date\n  5) View processing recipe\n  6) View asset history\n  7) Export job data\n  8) Database diagnostics\n  9) Back')
+        print('\nHistory & Database\n  1) List jobs by date\n  2) Browse recent jobs\n  3) View job details\n  4) Browse assets by date\n  5) View processing recipe\n  6) View asset history\n  7) Export job data\n  8) Database diagnostics\n  9) Quit')
         choice = input('Select [9]: ').strip() or '9'
         today = datetime.now().astimezone().strftime('%Y%m%d')
         try:
