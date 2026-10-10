@@ -1,5 +1,5 @@
 # PhotoUtilities
-
+test
 Current project scope and confirmed decisions, updated October 10, 2026.
 See [README.md](./README.md) for installation, commands, and troubleshooting.
 
@@ -57,7 +57,7 @@ The repository is `~/Documents/PhotoScans/PhotoUtilities`. Photo data stays
 outside it. The default scan root is `~/Documents/PhotoScans`; `scan --root`
 selects another parent. Documents may be iCloud-synced; its pathname alone does
 not guarantee local-only storage.
-
+ 
 New scans use `YYYYMMDD/{masters,prints,retouches}/` under the root, based on
 local scan initiation date. All derivatives inherit that date, even when
 processed later. Names are:
