@@ -233,14 +233,11 @@ when multiple histories exist. `history` shows chronological recipes and lineage
 stdout, and refuses an occupied output filename. It has no `--dry-run` flag;
 use `job show` to inspect the data first. It exports metadata, not image files.
 
-## Diagnostics, migration, and cleanup
+## Diagnostics and maintenance
 
 ```sh
 .venv/bin/photo-utils db check
 .venv/bin/photo-utils db check --checksums
-.venv/bin/photo-utils db migrate --root "$HOME/Documents/PhotoScans" --dry-run
-.venv/bin/photo-utils db migrate --root "$HOME/Documents/PhotoScans"
-.venv/bin/photo-utils db cleanup --root "$HOME/Documents/PhotoScans" --dry-run
 ```
 
 Diagnostics distinguish database corruption/foreign-key errors from missing
@@ -256,19 +253,7 @@ operations, preserve the current database separately, and copy the chosen backup
 to `jobs.sqlite3`, keeping the root binding pointed at that location. Never
 remove the database simply to reset an error or counter.
 
-Migration validates legacy manifests, recipes, and job sidecars, checks image
-paths/checksums, and reports imported/skipped/duplicate/failed counts. It retains
-all supported fields, numerical text, ICC paths, warnings, and tool versions.
-Rerunning does not duplicate records. Missing images are reported separately;
-ambiguous copies, changed metadata, and conflicting identities need manual
-review. Migration dry runs do not create or migrate a database. Legacy files
-remain readable and are not automatically deleted.
-
-To perform cleanup, explicitly rerun `db cleanup` without `--dry-run` after
-reviewing its preview. Only unchanged, imported metadata with verified stored
-fields and image references is eligible. Cleanup skips unverified/changed files
-and never targets images, unrelated JSON, or naming ledgers. No background
-watcher/service is installed. Removing `.venv` removes the project CLI but keeps
+No background watcher/service is installed. Removing `.venv` removes the project CLI but keeps
 photos and state; `brew uninstall sane-backends` removes the scanner backend,
 not the PhotoUtilities application.
 
@@ -290,7 +275,19 @@ Run automated tests from the project directory:
 .venv/bin/python -B -m unittest discover -q
 ```
 
-As recorded October 10, 2026: 70 automated tests pass. Actual local
+Strict application type checking uses `pyrightconfig.json`, which selects the
+project virtual environment and Python 3.9 compatibility. Install the optional
+development checker and run it with:
+
+```sh
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/pyright
+```
+
+Pyright may download a Node runtime on its first run. The checker covers
+`photo_utils`; the regression suite verifies tests separately.
+
+As recorded October 10, 2026: 67 automated tests pass. Actual local
 ImageMagick/ExifTool processing on a synthetic TIFF verified 16-bit RGB, system
 sRGB, checksums, and no JSON sidecars. A direct physical `scanimage` acquisition
 was verified at 600 dpi/48-bit RGB, and a real sheet was split into four prints.
@@ -299,8 +296,9 @@ of that updated wrapper and calibrated color appearance remain outstanding.
 
 The legacy import migrated 31 metadata files, with integrity/foreign keys passing
 and no changed image checksums. One pre-existing master reference was missing;
-its history remains in the database. Cleanup preview verified 31 eligible files
-and removed none. See [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md)
-for the migration, backup location, missing filename, and implementation checks.
+its history remains in the database. The user confirmed legacy metadata cleanup
+is complete; the one-time import and cleanup commands have been retired.
+See [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md) for the database
+backup location and implementation checks.
 See [PROJECT.md](./PROJECT.md) for confirmed decisions and deferred requirements,
 and [AGENTS.md](./AGENTS.md) for development instructions.

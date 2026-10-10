@@ -20,14 +20,13 @@ changes and carry authorized work through implementation and verification.
 - Preserve the original scan date, daily master ID, spatial print identities, and parent relationships. Failed/deleted/interrupted scans must not release allocated IDs.
 - Store routine manifests, recipes, history, and naming counters in the existing `jobs.sqlite3`. Do not reintroduce routine JSON sidecars or a second tracking database. JSON export is explicit.
 - Back up existing SQLite before schema changes; use versioned migrations, transactions, foreign keys, and indexed relationships. Preserve complete parameters, metadata, tool versions, and old records.
-- Preserve legacy metadata until explicit verified cleanup. Cleanup must never target images or unrelated JSON. Do not run cleanup merely because a migration succeeds.
 - Keep retouching reproducible and non-destructive. Preserve the confirmed Polaroid recipe, TIFF depth, and color-management behavior unless the user requests a change.
 - Never alter Apple Photos library internals. Any future Photos integration must use supported local interfaces and explicit import actions.
 
 ## Engineering approach
 - Extend the existing Python CLI and small modules. Reuse configuration, persistence, locks, logging, and tests; avoid unrelated refactoring or dependency changes.
 - Document actual parser command names and menu choices consistently. Do not present deferred features as available or treat them as a current assignment.
-- Preserve `--dry-run` for scanning, splitting, retouching, legacy migration, and cleanup. Explicit metadata export currently has no dry-run flag; inspect with `job show` first when needed.
+- Preserve `--dry-run` for scanning, splitting, and retouching. Explicit metadata export currently has no dry-run flag; inspect with `job show` first when needed.
 - Verify new hardware/backend capabilities on this Mac; do not invent scanner flags, RAW support, Photomator automation, or Photos APIs. Use official documentation when external verification is needed.
 - Use the project virtual environment. Never use `sudo pip`, replace system Python, or modify system tooling casually. Explain material installs and permissions; proceed with routine reversible project setup.
 - Quote shell paths containing spaces. Avoid hardcoded usernames and machine-specific absolute paths in code.
@@ -46,6 +45,6 @@ color appearance, and Photos import require direct checks. Mark them unverified
 until performed; do not infer hardware success from simulated acquisition.
 
 Maintain README installation, exact commands, data layout, configuration,
-troubleshooting, migration, and cleanup guidance. Update PROJECT when requirements
+troubleshooting and maintenance guidance. Update PROJECT when requirements
 or implemented scope change; preserve confirmed decisions and distinguish deferred
 work. Report relevant verification and remaining limitations concisely.

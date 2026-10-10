@@ -27,7 +27,7 @@ prevents concurrent allocators from using different databases for one root.
 
 Metadata record keys retain old locator names internally for compatibility;
 these are SQLite lookup keys, not routinely generated files. Legacy on-disk
-metadata can still be read until explicit migration/cleanup. Prepared retouch
+metadata can still be read for backward compatibility. Prepared retouch
 recipes are committed before atomic TIFF publication. Completed outputs are
 verified on reuse; missing images are reported separately from corruption.
 A canonical batch retouch is one job with several result assets/recipes.
@@ -35,24 +35,22 @@ A canonical batch retouch is one job with several result assets/recipes.
 ## Commands and compatibility
 
 The existing CLI adds `job show/export`, `assets`, `recipe show`, `history`, and
-`db check/migrate/cleanup`. `jobs` now covers scan/split/retouch jobs and supports
+`db check`. `jobs` now covers scan/split/retouch jobs and supports
 date/type/status filters. The main menu adds Retouch and History & Database.
 History provides date-filtered/recent jobs, details, assets, recipe selection,
 lineage, explicit exports, and diagnostics. See README for exact commands.
 
-Migration imports validated legacy records in relationship order, checks paths
-and image hashes, reports ambiguity, preserves all supported fields, and tracks
-source JSON checksums for idempotency. Cleanup is a separate explicit action:
-only verified, unchanged, imported metadata is eligible. No image deletion,
-renaming, or migration is performed automatically. Hardware settings, image
-algorithms, ICC handling, and filenames remain unchanged.
+The one-time legacy import and cleanup tooling has been retired after the user
+confirmed cleanup was complete. Imported records and tracking tables remain
+in SQLite. Hardware settings, image algorithms, ICC handling, and filenames
+remain unchanged.
 
 ## Verification
 
-70 automated tests pass in the project virtual environment. They cover
+The 67 current automated tests pass in the project virtual environment. They cover
 schema backup/retry, foreign keys/rollback, scan/split/batch lineage, arbitrary
 standalone retouch, queries/menus/exports, complete recipes/numeric text,
-legacy migration/retry/cleanup, counters/concurrency, missing files, no routine
+counters/concurrency, missing files, no routine
 JSON outputs, and recovery after TIFF publication is interrupted.
 
 A real local ImageMagick/ExifTool run on a synthetic external TIFF verified
@@ -75,14 +73,12 @@ records. A repeat dry run reports 31 duplicates and no new imports. The backup
 is `jobs.backup-v0-366e977d6d1c4ee385420943c858e003.sqlite3` beside the live
 state database. Final checksum diagnostics show SQLite integrity OK, no foreign
 key errors, no changed image checksums, and the one pre-existing missing master
-listed above. All legacy JSON and photos remain unchanged. Cleanup was not run.
-
-The real cleanup dry run verifies 31 eligible legacy metadata files and removes
-0; no cleanup action was taken. Date-filtered live job browsing also passed.
+listed above. Photos remain unchanged. The user subsequently confirmed legacy metadata
+cleanup was completed; its commands and supporting module have been removed.
 
 ## Modified files
 
-Source: `database.py` (new), `migration.py` (new), `history_cli.py` (new),
+Source: `database.py` (new), `history_cli.py` (new),
 `cli.py`, `scanning.py`, `processing.py`, `retouch.py`, and `naming.py` in
 `photo_utils/`. Tests: new `tests/test_database.py` plus updated scanning,
 processing, retouch, and naming tests. Documentation: README, PROJECT,

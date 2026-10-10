@@ -1,4 +1,5 @@
 """Versioned local metadata repository; images always remain ordinary files."""
+from __future__ import annotations
 from contextlib import contextmanager, closing
 from contextvars import ContextVar
 from datetime import datetime
@@ -9,29 +10,39 @@ import json
 import os
 import sqlite3
 import uuid
+from typing import Any, Callable, Generator, Optional, TYPE_CHECKING, TypeVar, overload, Literal, Union, cast
+import tifffile
+
+if TYPE_CHECKING:
+    from typing_extensions import ParamSpec
+
+    P = ParamSpec("P")
+    R = TypeVar("R")
+Metadata = dict[str, Any]
+PathLike = Union[str, Path]
 
 
 class DatabaseError(RuntimeError):
     pass
 
 
-STATE = ContextVar('photo_utils_state', default=None)
-CLI_COMMAND = ContextVar('photo_utils_command',default=None)
-CLI_CONFIG = ContextVar('photo_utils_cli_config',default=None)
+STATE: ContextVar[Optional[PathLike]] = ContextVar('photo_utils_state', default=None)
+CLI_COMMAND: ContextVar[Optional[str]] = ContextVar('photo_utils_command',default=None)
+CLI_CONFIG: ContextVar[Optional[Metadata]] = ContextVar('photo_utils_cli_config',default=None)
 SCHEMA_VERSION = 1
 
 
-def state_dir():
+def state_dir() -> Path:
     return Path(STATE.get() or os.environ.get('PHOTO_UTILITIES_STATE_DIR') or
                 Path.home() / 'Library' / 'Application Support' / 'PhotoUtilities').expanduser().resolve()
 
 
-def database_path():
+def database_path() -> Path:
     return state_dir() / 'jobs.sqlite3'
 
 
 @contextmanager
-def use_state(directory):
+def use_state(directory: Optional[PathLike]) -> Generator[None, None, None]:
     token = STATE.set(directory) if directory is not None else None
     try:
         yield
@@ -40,13 +51,13 @@ def use_state(directory):
             STATE.reset(token)
 
 
-def scoped_state(function):
+def scoped_state(function: Callable[P, R]) -> Callable[P, R]:
     import functools
     @functools.wraps(function)
-    def wrapped(*args, **kwargs):
-        selected = kwargs.get('state_dir')
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+        selected: Any = kwargs.get('state_dir')
         if selected is None and STATE.get() is None and args:
-            source = Path(args[0]).expanduser().resolve()
+            source = Path(cast(PathLike, args[0])).expanduser().resolve()
             for parent in [source, *source.parents]:
                 binding = parent / '.photo-utils-database'
                 if binding.is_file():
@@ -60,15 +71,15 @@ def scoped_state(function):
     return wrapped
 
 
-def now():
+def now() -> str:
     return datetime.now().astimezone().isoformat()
 
 
-def encode(value):
+def encode(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True)
 
 
-def digest(path):
+def digest(path: PathLike) -> str:
     value = hashlib.sha256()
     with Path(path).open('rb') as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
@@ -76,7 +87,7 @@ def digest(path):
     return value.hexdigest()
 
 
-def raw_connect(path, readonly=False):
+def raw_connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
     db = sqlite3.connect(path.as_uri() + '?mode=ro' if readonly else str(path),
                          uri=readonly, timeout=30)
     db.row_factory = sqlite3.Row
@@ -84,7 +95,7 @@ def raw_connect(path, readonly=False):
     return db
 
 
-def connect(path=None):
+def connect(path: Optional[PathLike] = None) -> sqlite3.Connection:
     path = Path(path or database_path()).expanduser().resolve()
     if path.is_file():
         current = raw_connect(path)
@@ -161,7 +172,7 @@ def connect(path=None):
 
 
 @contextmanager
-def transaction():
+def transaction() -> Generator[sqlite3.Connection, None, None]:
     try:
         with closing(connect()) as db:
             db.execute('BEGIN IMMEDIATE')
@@ -171,15 +182,24 @@ def transaction():
         raise DatabaseError(f'Local metadata database: {exc}') from exc
 
 
-def key(path):
+def key(path: PathLike) -> str:
     return str(Path(path).expanduser().resolve())
 
 
-def record_exists(path):
+def record_exists(path: PathLike) -> bool:
     return read_record(path, missing_ok=True) is not None
 
 
-def read_record(path, missing_ok=False, legacy=True):
+@overload
+def read_record(path: PathLike, missing_ok: Literal[False] = False, legacy: bool = True) -> Metadata: ...
+
+@overload
+def read_record(path: PathLike, missing_ok: Literal[True], legacy: bool = True) -> Optional[Metadata]: ...
+
+@overload
+def read_record(path: PathLike, missing_ok: bool, legacy: bool = True) -> Optional[Metadata]: ...
+
+def read_record(path: PathLike, missing_ok: bool = False, legacy: bool = True) -> Optional[Metadata]:
     location = database_path()
     if location.exists():
         with closing(raw_connect(location, readonly=True)) as db:
@@ -191,13 +211,13 @@ def read_record(path, missing_ok=False, legacy=True):
         value = json.loads(Path(path).read_text(encoding='utf-8'))
         if not isinstance(value, dict):
             raise DatabaseError(f'Legacy metadata must be a JSON object: {path}')
-        return value
+        return cast(Metadata, value)
     if missing_ok:
         return None
     raise DatabaseError(f'No processing metadata found: {path}')
 
 
-def processing_date(path, payload=None):
+def processing_date(path: PathLike, payload: Optional[Metadata] = None) -> str:
     import re
     payload = payload or {}
     if payload.get('scan_date'):
@@ -208,7 +228,7 @@ def processing_date(path, payload=None):
     return (payload.get('created_at') or now())[:10].replace('-', '')
 
 
-def asset(db, path, asset_type='external', parent=None, job=None, sha=None, metadata=None, created=None, date=None):
+def asset(db: sqlite3.Connection, path: PathLike, asset_type: str = 'external', parent: Optional[str] = None, job: Optional[str] = None, sha: Optional[str] = None, metadata: Optional[Metadata] = None, created: Optional[str] = None, date: Optional[str] = None) -> str:
     path = Path(path).expanduser().resolve()
     metadata = metadata or {}
     row = db.execute('SELECT * FROM assets WHERE path=?', (str(path),)).fetchone()
@@ -220,8 +240,8 @@ def asset(db, path, asset_type='external', parent=None, job=None, sha=None, meta
     width, height, bits = metadata.get('width'), metadata.get('height'), None
     if path.is_file():
         try:
-            import tifffile
-            with tifffile.TiffFile(path) as image:
+            # This tifffile release lacks complete page/tag type annotations.
+            with cast(Any, tifffile.TiffFile(path)) as image:
                 page = image.pages[0]
                 width, height = page.imagewidth, page.imagelength
                 bits = page.bitspersample
@@ -240,7 +260,7 @@ def asset(db, path, asset_type='external', parent=None, job=None, sha=None, meta
     return asset_id
 
 
-def save_job(db, job_id, job_type, payload, output='', parent=None):
+def save_job(db: sqlite3.Connection, job_id: str, job_type: str, payload: Metadata, output: PathLike = '', parent: Optional[str] = None) -> None:
     existing = db.execute('SELECT job_type,output_path FROM scan_jobs WHERE job_id=?',(job_id,)).fetchone()
     if existing and (existing['job_type'] != job_type or (existing['output_path'] and output and key(existing['output_path']) != key(output))):
         raise DatabaseError(f'Ambiguous job identity: {job_id}')
@@ -261,13 +281,13 @@ def save_job(db, job_id, job_type, payload, output='', parent=None):
                 payload.get('command') or CLI_COMMAND.get() or f'photo-utils {job_type}',encode(payload),payload.get('error'),now() if logical in {'completed','partial','failed'} else None))
 
 
-def put_recipe(db, job, source, output, stage, payload):
+def put_recipe(db: sqlite3.Connection, job: str, source: str, output: str, stage: str, payload: Metadata) -> None:
     recipe_id = uuid.uuid5(uuid.NAMESPACE_URL, f'{job}:{source}:{output}:{stage}').hex
     db.execute('''INSERT INTO recipes VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET payload_json=excluded.payload_json''',
                (recipe_id,job,source,output,stage,payload.get('created_at') or now(),payload.get('algorithm','unknown'),encode(payload)))
 
 
-def save_record(path, payload, db=None):
+def save_record(path: PathLike, payload: Metadata, db: Optional[sqlite3.Connection] = None) -> str:
     if db is None:
         with transaction() as connection:
             return save_record(path,payload,connection)
@@ -288,7 +308,7 @@ def save_record(path, payload, db=None):
         parent_job = source_row[0] if source_row else None
     if kind == 'recipe' and not payload.get('job_id'):
         # Legacy recipes belong to the enclosing retouch manifest when present.
-        matches = []
+        matches: list[str] = []
         for manifest in db.execute("SELECT record_key,job_id,payload_json FROM metadata_records WHERE kind='retouch'"):
             data = json.loads(manifest['payload_json'])
             if any(key(Path(manifest['record_key']).parent/item['relative_output']) == key(payload['output_path']) for item in data.get('files',[])):
@@ -338,11 +358,10 @@ def save_record(path, payload, db=None):
     return job_id
 
 
-def sync_scan(db, job_id):
+def sync_scan(db: sqlite3.Connection, job_id: str) -> None:
     row = db.execute('SELECT * FROM scan_jobs WHERE job_id=?',(job_id,)).fetchone()
     if row is None:
         return
-    payload = dict(row)
     settings = json.loads(row['settings_json'])
     logical = 'partial' if row['status']=='interrupted' else row['status']
     if logical=='completed' and not Path(row['output_path']).is_file():
@@ -354,7 +373,7 @@ def sync_scan(db, job_id):
         asset(db,row['output_path'],'master',job=job_id,sha=row['sha256'],metadata=settings,created=row['started_at'],date=date)
 
 
-def import_ledger(db, root):
+def import_ledger(db: sqlite3.Connection, root: PathLike) -> None:
     old = Path(root)/'.photo-utils-naming.sqlite3'
     if old.is_file():
         with closing(raw_connect(old,readonly=True)) as legacy:
@@ -368,7 +387,7 @@ def import_ledger(db, root):
                     db.execute('INSERT OR IGNORE INTO legacy_sources VALUES (?,?,?,?)',(row[0],key(root),row[1],row[2]))
 
 
-def reserve(root, date, source=None, dry_run=False):
+def reserve(root: PathLike, date: str, source: Optional[PathLike] = None, dry_run: bool = False) -> tuple[str, int]:
     root = Path(root).resolve()
     if dry_run:
         location = database_path()
@@ -417,16 +436,17 @@ def reserve(root, date, source=None, dry_run=False):
         return date,number
 
 
-def query_jobs(date=None, job_type=None, status=None, limit=20):
+def query_jobs(date: Optional[str] = None, job_type: Optional[str] = None, status: Optional[str] = None, limit: int = 20) -> list[Metadata]:
     with closing(connect()) as db:
-        conditions, values = [], []
+        conditions: list[str] = []
+        values: list[Any] = []
         for column,value in [('processing_date',date),('job_type',job_type),('processing_status',status)]:
             if value:
                 conditions.append(column+'=?')
                 values.append(value)
         sql = 'SELECT * FROM scan_jobs' + (' WHERE '+' AND '.join(conditions) if conditions else '')
         rows = db.execute(sql+' ORDER BY julianday(started_at) DESC,started_at DESC LIMIT ?', values+[limit]).fetchall()
-        result = []
+        result: list[Metadata] = []
         for row in rows:
             item = dict(row)
             item['asset_counts'] = dict(db.execute('SELECT asset_type,count(*) FROM assets WHERE job_id=? GROUP BY asset_type',(row['job_id'],)).fetchall())
@@ -439,7 +459,7 @@ def query_jobs(date=None, job_type=None, status=None, limit=20):
         return result
 
 
-def job_details(job_id):
+def job_details(job_id: str) -> Metadata:
     with closing(connect()) as db:
         row = db.execute('SELECT * FROM scan_jobs WHERE job_id=?',(job_id,)).fetchone()
         if not row:
@@ -453,16 +473,17 @@ def job_details(job_id):
         placeholders = ','.join('?' for _ in asset_ids) or 'NULL'
         recipes = [dict(item) for item in db.execute(f'SELECT * FROM recipes WHERE job_id=? OR output_asset_id IN ({placeholders}) ORDER BY julianday(created_at),created_at', [job_id]+asset_ids)]
         records = [dict(row) for row in db.execute('SELECT * FROM metadata_records WHERE job_id=?',(job_id,))]
-        def unpack(item):
+        def unpack(item: Metadata) -> Metadata:
             return {k[:-5] if k.endswith('_json') else k:json.loads(v) if k.endswith('_json') else v for k,v in item.items()}
         return {'job':unpack(dict(row)),'assets':[unpack(item) for item in assets],
                 'recipes':[unpack(item) for item in recipes], 'manifests':[unpack(item) for item in records],
                 'stored_json':{item['record_key']:item['payload_json'] for item in records}}
 
 
-def query_assets(date=None, stage=None, status=None):
+def query_assets(date: Optional[str] = None, stage: Optional[str] = None, status: Optional[str] = None) -> list[Metadata]:
     with closing(connect()) as db:
-        conditions, values = [], []
+        conditions: list[str] = []
+        values: list[Any] = []
         for column,value in [('processing_date',date),('asset_type',stage),('status',status)]:
             if value:
                 conditions.append(column+'=?')
@@ -470,13 +491,13 @@ def query_assets(date=None, stage=None, status=None):
         return [dict(row) for row in db.execute('SELECT * FROM assets'+(' WHERE '+' AND '.join(conditions) if conditions else '')+' ORDER BY processing_date,path',values)]
 
 
-def history(asset_id):
+def history(asset_id: str) -> Metadata:
     with closing(connect()) as db:
         row = db.execute('SELECT * FROM assets WHERE asset_id=?',(asset_id,)).fetchone()
         if not row:
             raise DatabaseError('Unknown asset ID: '+asset_id)
-        lineage = []
-        seen = set()
+        lineage: list[Metadata] = []
+        seen: set[str] = set()
         while row:
             if row['asset_id'] in seen:
                 raise DatabaseError('Cycle in asset lineage.')
@@ -490,11 +511,12 @@ def history(asset_id):
         return {'lineage':list(reversed(lineage)), 'children':children, 'recipes':recipes}
 
 
-def check_database(verify_checksums=False):
+def check_database(verify_checksums: bool = False) -> Metadata:
     with closing(connect()) as db:
         integrity = [row[0] for row in db.execute('PRAGMA integrity_check')]
         foreign_keys = [tuple(row) for row in db.execute('PRAGMA foreign_key_check')]
-        missing, changed = [], []
+        missing: list[Metadata] = []
+        changed: list[Metadata] = []
         for row in db.execute('SELECT asset_id,path,sha256,status,job_id FROM assets'):
             if not Path(row['path']).is_file():
                 missing.append(dict(row))

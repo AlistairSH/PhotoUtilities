@@ -20,7 +20,6 @@ from .scanning import (
     default_scan_folder,
     default_state_dir,
     doctor,
-    list_jobs,
     run_scan,
     validate_folder_name,
 )
@@ -136,16 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_show.add_argument("--recipe-id", help="Select one history entry")
     history = commands.add_parser("history", help="Inspect chronological asset history and lineage")
     history.add_argument("asset_id")
-    db = commands.add_parser("db", help="Diagnostics and explicit legacy metadata migration")
+    db = commands.add_parser("db", help="Database diagnostics")
     db_actions = db.add_subparsers(dest="action",required=True)
     db_check = db_actions.add_parser("check")
     db_check.add_argument("--checksums", action="store_true",help="Also verify image SHA-256 checksums")
-    db_migrate = db_actions.add_parser("migrate")
-    db_cleanup = db_actions.add_parser("cleanup")
-    for command in (db_migrate,db_cleanup):
-        command.add_argument("--root",type=Path,default=default_root())
-        command.add_argument("--dry-run",action="store_true")
-    for command in (process,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check,db_migrate,db_cleanup):
+    for command in (process,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
         command.add_argument("--state-dir",type=Path,help="Local SQLite job database directory (default: configured state directory)")
     return parser
 

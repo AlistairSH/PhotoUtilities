@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from photo_utils import database as store, migration
+from photo_utils import database as store
 from photo_utils.cli import main
 from photo_utils.history_cli import export_job
 from photo_utils.processing import process_sheet
@@ -139,66 +139,6 @@ class DatabaseTests(unittest.TestCase):
             retouch(self.source,output_dir=self.root/'standalone-outputs')
         with patch('sys.stdin.isatty',return_value=True),patch('builtins.input',side_effect=['h','2','9']),patch('builtins.print'):
             self.assertEqual(main([]),0)
-
-    def test_legacy_migration_repeatability_and_verified_cleanup(self):
-        with patch('builtins.print'):
-            output = retouch(self.source,output_dir=self.root/'standalone-outputs')[0]
-        manifest_path = output.parent/'manifest.json'
-        recipe_path = output.with_suffix('.tif.recipe.json')
-        manifest = store.read_record(manifest_path)
-        recipe = store.read_record(recipe_path)
-        manifest_path.write_text(json.dumps(manifest))
-        recipe_path.write_text(json.dumps(recipe))
-        unrelated = output.parent/'unrelated.json'
-        unrelated.write_text('{"keep":true}')
-        original = output.read_bytes()
-        isolated_state = self.root/'migration-state'
-        with store.use_state(isolated_state):
-            preview = migration.migrate(self.root,dry_run=True)
-            self.assertEqual(preview['imported'],2)
-            self.assertFalse(store.database_path().exists())
-            first = migration.migrate(self.root)
-            self.assertEqual(first['failed'],0)
-            self.assertEqual(first['imported'],2)
-            second = migration.migrate(self.root)
-            self.assertEqual(second['duplicate'],2)
-            self.assertEqual(first['record_counts'],second['record_counts'])
-            self.assertEqual(store.read_record(recipe_path,legacy=False)['actual_parameters'],recipe['actual_parameters'])
-            dry = migration.cleanup(self.root,dry_run=True)
-            self.assertEqual(dry['eligible'],2)
-            self.assertTrue(recipe_path.is_file())
-            done = migration.cleanup(self.root)
-            self.assertEqual(done['removed'],2)
-            self.assertFalse(recipe_path.exists())
-            self.assertEqual(store.read_record(recipe_path,legacy=False)['actual_parameters'],recipe['actual_parameters'])
-            self.assertTrue(unrelated.is_file())
-            self.assertTrue(store.check_database()['database_ok'])
-        self.assertEqual(output.read_bytes(),original)
-
-    def test_migration_preserves_numeric_json_lexemes(self):
-        with patch('builtins.print'):
-            output = retouch(self.source,output_dir=self.root/'standalone-outputs')[0]
-        path = output.with_suffix('.tif.recipe.json')
-        value = store.read_record(path)
-        raw = json.dumps(value)[:-1] + ', "precise_parameter": 0.12345678901234567890123456789}'
-        path.write_text(raw)
-        with store.use_state(self.root/'precision-state'):
-            result = migration.migrate(self.root)
-            self.assertEqual(result['imported'],1)
-            with closing(store.connect()) as db:
-                self.assertEqual(db.execute('SELECT payload_json FROM recipes').fetchone()[0],raw)
-            job = store.query_jobs()[0]
-            self.assertEqual(store.job_details(job['job_id'])['stored_json'][str(path)],raw)
-
-    def test_migration_reports_ambiguous_and_changed_records(self):
-        with patch('builtins.print'):
-            output = retouch(self.source,output_dir=self.root/'standalone-outputs')[0]
-        recipe = store.read_record(output.with_suffix('.tif.recipe.json'))
-        copied = self.root/'copied.tif.recipe.json'
-        copied.write_text(json.dumps(recipe))
-        summary = migration.migrate(self.root,dry_run=True)
-        self.assertEqual(summary['failed'],1)
-        self.assertIn('Ambiguous',summary['details'][0]['error'])
 
     def test_naming_ledger_is_imported_without_reset_or_second_database(self):
         root = self.root/'scan-root'

@@ -415,7 +415,7 @@ def _icc_profile(path: Path) -> Optional[bytes]:
         raise RetouchError("Could not inspect ICC profile in {}: {}".format(path, exc)) from exc
 
 
-def _write_tiff(path: Path, image: UInt16Image, metadata: dict[str, Any]) -> None:
+def write_tiff(path: Path, image: UInt16Image, metadata: dict[str, Any]) -> None:
     options: dict[str, Any] = {"photometric": "rgb", "metadata": None}
     x_resolution = metadata.get("XResolution")
     y_resolution = metadata.get("YResolution")
@@ -964,7 +964,8 @@ def retouch(
     sources, single_file = _list_tiffs(target_path)
     target = target_path.expanduser().resolve()
     source_root = target.parent if single_file else target
-    canonical = all(identity(source) and identity(source)[3] == "print" for source in sources)
+    identities = [identity(source) for source in sources]
+    canonical = all(parsed is not None and parsed[3] == "print" for parsed in identities)
     if canonical:
         days = {day_directory(source) for source in sources}
         if len(days) != 1:
@@ -1009,14 +1010,14 @@ def retouch(
         manifest = database.read_record(record_path, missing_ok=True) or {
             "job_id":str(uuid.uuid4()), "algorithm":RETOUCH_ALGORITHM,
             "created_at":datetime.now(timezone.utc).isoformat(),
-            "scan_date":identity(sources[0])[0], "source_root":str(source_root),
+            "scan_date":day_directory(sources[0]).name, "source_root":str(source_root),
             "source_sha256":digests, "options":_options_dict(options),
             "preview":preview, "files":[]}
         manifest.update(status="running")
         manifest.pop("error",None)
         if not dry_run:
             _atomic_json(record_path,manifest)
-        results = []
+        results: list[Path] = []
         try:
             for source,output in plans:
                 recipe = _single_retouch(source,output,options,dry_run=dry_run,preview=preview,

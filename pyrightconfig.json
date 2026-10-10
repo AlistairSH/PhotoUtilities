@@ -1,0 +1,7 @@
+{
+  "include": ["photo_utils"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.9",
+  "typeCheckingMode": "strict"
+}

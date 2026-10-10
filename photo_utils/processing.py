@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from . import database
-from .naming import identity, day_directory, master_id, tracking, serialized_derivatives, existing_master
+from .naming import identity, day_directory, master_id, serialized_derivatives, existing_master
 
-import json
 import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple, cast
+from importlib.metadata import version
+from numpy.typing import NDArray
 
 import cv2
 import numpy as np
@@ -47,13 +48,14 @@ class CardPlan:
     border_confidence: float
 
 
-def _read_source(source: Path) -> Tuple[np.ndarray, dict[str, Any]]:
+def _read_source(source: Path) -> Tuple[NDArray[Any], dict[str, Any]]:
     if not source.is_file():
         raise ProcessingError("Source image does not exist or is not a file: {}".format(source))
     try:
-        with tifffile.TiffFile(source) as image_file:
+        # This tifffile release lacks complete page/tag type annotations.
+        with cast(Any, tifffile.TiffFile(source)) as image_file:
             page = image_file.pages[0]
-            image = page.asarray()
+            image: NDArray[Any] = page.asarray()
             tags = page.tags
             metadata: dict[str, Any] = {}
             x_resolution = tags.get("XResolution")
@@ -95,14 +97,14 @@ def _read_source(source: Path) -> Tuple[np.ndarray, dict[str, Any]]:
     return image, metadata
 
 
-def _gray8(image: np.ndarray) -> np.ndarray:
+def _gray8(image: NDArray[Any]) -> NDArray[Any]:
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     if gray.dtype == np.uint16:
         return (gray / 257.0).astype(np.uint8)
     return gray
 
 
-def _ordered_corners(points: np.ndarray) -> np.ndarray:
+def _ordered_corners(points: NDArray[Any]) -> NDArray[Any]:
     points = np.asarray(points, dtype=np.float32).reshape(4, 2)
     sums = points.sum(axis=1)
     differences = points[:, 1] - points[:, 0]
@@ -120,7 +122,7 @@ def _ordered_corners(points: np.ndarray) -> np.ndarray:
     return ordered
 
 
-def detect_cards(image: np.ndarray) -> list[CardRegion]:
+def detect_cards(image: NDArray[Any]) -> list[CardRegion]:
     height, width = image.shape[:2]
     scale = min(1.0, DETECTION_MAX_DIMENSION / float(max(height, width)))
     detection_width = max(1, int(round(width * scale)))
@@ -139,11 +141,11 @@ def detect_cards(image: np.ndarray) -> list[CardRegion]:
         cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)),
     )
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    candidates = []
+    candidates: list[CardRegion] = []
     frame_area = detection_width * detection_height
     for contour in contours:
         area = cv2.contourArea(contour)
-        x, y, box_width, box_height = cv2.boundingRect(contour)
+        _x, _y, box_width, box_height = cv2.boundingRect(contour)
         if (
             area < frame_area * 0.015
             or box_width < detection_width * 0.10
@@ -167,7 +169,8 @@ def detect_cards(image: np.ndarray) -> list[CardRegion]:
         points[:, 0] *= width / float(detection_width)
         points[:, 1] *= height / float(detection_height)
         ordered = _ordered_corners(points)
-        center = tuple(float(value) for value in ordered.mean(axis=0))
+        mean = ordered.mean(axis=0)
+        center = (float(mean[0]), float(mean[1]))
         bounds = (
             float(ordered[:, 0].min()),
             float(ordered[:, 1].min()),
@@ -195,7 +198,7 @@ def detect_cards(image: np.ndarray) -> list[CardRegion]:
     return candidates
 
 
-def _warp_card(image: np.ndarray, region: CardRegion) -> np.ndarray:
+def _warp_card(image: NDArray[Any], region: CardRegion) -> NDArray[Any]:
     corners = np.asarray(region.corners, dtype=np.float32)
     top_left, top_right, bottom_right, bottom_left = corners
     width = int(
@@ -235,7 +238,7 @@ def _warp_card(image: np.ndarray, region: CardRegion) -> np.ndarray:
     )
 
 
-def _thickest_border(image: np.ndarray) -> Tuple[str, float]:
+def _thickest_border(image: NDArray[Any]) -> Tuple[str, float]:
     thumbnail = cv2.resize(_gray8(image), (400, 320), interpolation=cv2.INTER_AREA)
     min_dimension = min(thumbnail.shape)
     near = max(1, int(round(min_dimension * 0.05)))
@@ -260,8 +263,8 @@ def _thickest_border(image: np.ndarray) -> Tuple[str, float]:
     return ranked[0][0], confidence
 
 
-def plan_cards(image: np.ndarray) -> list[CardPlan]:
-    plans = []
+def plan_cards(image: NDArray[Any]) -> list[CardPlan]:
+    plans: list[CardPlan] = []
     rotations_to_bottom = {"bottom": 0, "left": 1, "top": 2, "right": 3}
     for region in detect_cards(image):
         warped = _warp_card(image, region)
@@ -314,7 +317,7 @@ def _provenance_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "backend_versions": {
             "numpy": np.__version__,
             "opencv": cv2.__version__,
-            "tifffile": tifffile.__version__,
+            "tifffile": version("tifffile"),
         },
         "source_metadata": {
             "resolution": metadata.get("resolution"),
@@ -337,8 +340,8 @@ def _validate_existing_job(
     source: Path,
     source_sha256: str,
     plans: Sequence[CardPlan],
-    names=OUTPUT_NAMES,
-    manifest_name="manifest.json",
+    names: Sequence[str] = OUTPUT_NAMES,
+    manifest_name: str = "manifest.json",
 ) -> Optional[dict[str, Any]]:
     manifest_path = output_dir / manifest_name
     if not output_dir.exists() or (manifest_name != "manifest.json" and not database.record_exists(manifest_path)):
@@ -358,14 +361,14 @@ def _validate_existing_job(
             "Output folder belongs to a different source or processing version: {}"
             .format(output_dir)
         )
-    records = manifest.get("cards")
+    records: Any = manifest.get("cards")
     if (
         not isinstance(records, list)
-        or len(records) != len(plans)
+        or len(cast(list[Any], records)) != len(plans)
         or any(
             not isinstance(card, dict)
-            or card.get("filename") != names[index]
-            for index, card in enumerate(records)
+            or cast(dict[str, Any], card).get("filename") != names[index]
+            for index, card in enumerate(cast(list[Any], records))
         )
     ):
         raise ProcessingError("Existing processing manifest has an invalid card list.")
@@ -386,7 +389,7 @@ def _validate_existing_job(
 def list_sheet_sources(root: Path, limit: int = 20) -> list[Path]:
     if not root.is_dir():
         return []
-    sources = []
+    sources: list[Path] = []
     try:
         for path in root.rglob("*"):
             if not path.is_file() or path.suffix.lower() not in (".tif", ".tiff"):
@@ -445,7 +448,7 @@ def process_sheet(
     destination = (
         output_dir.expanduser().resolve()
         if output_dir is not None
-        else (day / "prints" if parsed else source.with_name(source.stem + "-prints"))
+        else (day / "prints" if day is not None else source.with_name(source.stem + "-prints"))
     )
     if destination == source or destination in source.parents:
         raise ProcessingError("Output directory must not contain the source TIFF.")
@@ -489,7 +492,7 @@ def process_sheet(
             ) from exc
         except OSError as exc:
             raise ProcessingError("Could not create output directory {}: {}".format(destination, exc)) from exc
-        manifest = {
+        manifest: dict[str, Any] = {
             "job_id": str(uuid.uuid4()),
             "status": "running",
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -519,7 +522,7 @@ def process_sheet(
     else:
         manifest = existing
         # Resume the stored spatial identities, even if detection ordering changes.
-        ordered = []
+        ordered: list[CardPlan] = []
         for record in manifest["cards"]:
             matches = [plan for plan in cards if [list(point) for point in plan.region.corners] == record.get("corners")]
             if len(matches) != 1:
@@ -530,7 +533,7 @@ def process_sheet(
         manifest.pop("error", None)
     _atomic_write_manifest(manifest_path, manifest)
 
-    outputs = []
+    outputs: list[Path] = []
     try:
         for index, plan in enumerate(cards):
             record = manifest["cards"][index]

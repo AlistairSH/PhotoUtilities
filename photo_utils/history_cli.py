@@ -1,15 +1,17 @@
 """Compact metadata browsing and explicit exports for the existing CLI."""
+from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import json
 import os
 import tempfile
+from argparse import Namespace
+from typing import Any, Optional
 
 from . import database as store
-from . import migration
 
 
-def date_argument(value):
+def date_argument(value: str) -> str:
     import argparse
     try:
         parsed = datetime.strptime(value,'%Y%m%d')
@@ -20,11 +22,11 @@ def date_argument(value):
     return value
 
 
-def show_json(value):
+def show_json(value: Any) -> None:
     print(json.dumps(value,ensure_ascii=False,indent=2,sort_keys=True))
 
 
-def list_jobs(date=None, job_type=None, status=None, limit=20):
+def list_jobs(date: Optional[str] = None, job_type: Optional[str] = None, status: Optional[str] = None, limit: int = 20) -> None:
     if limit < 1:
         raise store.DatabaseError('--limit must be positive')
     rows = store.query_jobs(date,job_type,status,limit)
@@ -37,18 +39,18 @@ def list_jobs(date=None, job_type=None, status=None, limit=20):
         print('No matching jobs.')
 
 
-def list_assets(date=None,stage=None,status=None):
+def list_assets(date: Optional[str] = None, stage: Optional[str] = None, status: Optional[str] = None) -> None:
     rows = store.query_assets(date,stage,status)
     by_id = {row['asset_id']:row for row in store.query_assets()}
-    def root(row):
-        seen = set()
+    def root(row: dict[str, Any]) -> str:
+        seen: set[str] = set()
         while row.get('parent_asset_id') in by_id:
             if row['asset_id'] in seen:
                 raise store.DatabaseError('Cycle in asset lineage')
             seen.add(row['asset_id'])
             row = by_id[row['parent_asset_id']]
         return row['asset_id']
-    groups = {}
+    groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault(root(row),[]).append(row)
     for group,items in groups.items():
@@ -59,7 +61,7 @@ def list_assets(date=None,stage=None,status=None):
         print('No matching assets.')
 
 
-def recipe_show(asset_id,recipe_id=None):
+def recipe_show(asset_id: str, recipe_id: Optional[str] = None) -> None:
     rows = [row for row in store.history(asset_id)['recipes'] if row['output_asset_id']==asset_id]
     if recipe_id:
         rows = [row for row in rows if row['recipe_id']==recipe_id]
@@ -70,7 +72,7 @@ def recipe_show(asset_id,recipe_id=None):
         show_json(row['payload'])
 
 
-def export_job(job_id, output=None):
+def export_job(job_id: str, output: Optional[Path] = None) -> None:
     value = store.job_details(job_id)
     data = json.dumps(value,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
     if output is None:
@@ -92,7 +94,7 @@ def export_job(job_id, output=None):
     print(f'Exported: {output}')
 
 
-def dispatch(args):
+def dispatch(args: Namespace) -> int:
     if args.command=='jobs':
         list_jobs(args.date,args.type,args.status,args.limit)
     elif args.command=='assets':
@@ -113,16 +115,10 @@ def dispatch(args):
             print(f"Missing image files: {len(value['missing_files'])}; changed checksums: {len(value['changed_files'])}")
             show_json(value)
             return 0 if value['database_ok'] and not value['missing_files'] and not value['changed_files'] else 1
-        if args.action=='migrate':
-            value = migration.migrate(args.root,args.dry_run)
-        else:
-            value = migration.cleanup(args.root,args.dry_run)
-        show_json(value)
-        return 1 if value.get('failed') else 0
     return 0
 
 
-def menu():
+def menu() -> None:
     while True:
         print('\nHistory & Database\n  1) List jobs by date\n  2) Browse recent jobs\n  3) View job details\n  4) Browse assets by date\n  5) View processing recipe\n  6) View asset history\n  7) Export job data\n  8) Database diagnostics\n  9) Back')
         choice = input('Select [9]: ').strip() or '9'

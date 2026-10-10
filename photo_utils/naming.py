@@ -1,16 +1,28 @@
 """Local, durable scan identities and readable stage names."""
-from pathlib import Path
+from __future__ import annotations
+
 import re
+from pathlib import Path
+from typing import Any, Callable, Optional, TYPE_CHECKING, TypeVar
+
 from . import database
+
+if TYPE_CHECKING:
+    from typing_extensions import ParamSpec
+
+    P = ParamSpec("P")
+    R = TypeVar("R")
+
+ScanIdentity = tuple[str, int, Optional[int], str]
 
 PATTERN = re.compile(r"^(\d{8})-(\d{3,})(?:-(\d{2,}))?-(master|print|retouch)(?:-v(\d{2,}))?\.tif$")
 
 
-def identity(path: Path):
+def identity(path: Path) -> Optional[ScanIdentity]:
     match = PATTERN.fullmatch(path.name)
     if not match:
         return None
-    date, number, print_number, stage, version = match.groups()
+    date, number, print_number, stage, _version = match.groups()
     return date, int(number), int(print_number) if print_number else None, stage
 
 
@@ -31,7 +43,7 @@ def day_directory(source: Path) -> Path:
     return parent if parent.name == parsed[0] else parent / parsed[0]
 
 
-def tracking(source: Path, stage: str) -> dict:
+def tracking(source: Path, stage: str) -> dict[str, Any]:
     parsed = identity(source)
     if not parsed:
         return {}
@@ -42,13 +54,14 @@ def tracking(source: Path, stage: str) -> dict:
     return {"scan_date": date, "master_id": master_id(date, number), "parent_id": parent, "processing_stage": stage}
 
 
-def serialized_derivatives(function):
+def serialized_derivatives(function: Callable[P, R]) -> Callable[P, R]:
     """Serialize recipe/manifest updates and version selection for one scan day."""
     import functools
     import fcntl
     @database.scoped_state
     @functools.wraps(function)
-    def wrapped(source, *args, **kwargs):
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+        source: Any = args[0] if args else kwargs.get("source", kwargs.get("target_path"))
         path = Path(source).expanduser().resolve()
         if path.is_dir():
             candidate = next((item for item in path.rglob("*.tif") if identity(item)), None)
@@ -57,18 +70,18 @@ def serialized_derivatives(function):
         parsed = identity(path)
         day = day_directory(path) if parsed else (path.parent if path.is_file() or path.name == "prints" else None)
         if kwargs.get("dry_run"):
-            return function(source, *args, **kwargs)
+            return function(*args, **kwargs)
         if day is None:
             day = database.state_dir()
-            return function(source, *args, **kwargs)
+            return function(*args, **kwargs)
         day.mkdir(parents=True, exist_ok=True)
         with (day / ".derivatives.lock").open("a") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            return function(source, *args, **kwargs)
+            return function(*args, **kwargs)
     return wrapped
 
 
-def existing_master(source: Path, dry_run: bool = False):
+def existing_master(source: Path, dry_run: bool = False) -> tuple[ScanIdentity, Path]:
     """Assign an identity without renaming a legacy sheet; remember its provenance."""
     from datetime import datetime
     match = re.search(r"LiDE400-(\d{8})T", source.name)

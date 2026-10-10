@@ -1,5 +1,5 @@
 # PhotoUtilities
-test
+
 Current project scope and confirmed decisions, updated October 10, 2026.
 See [README.md](./README.md) for installation, commands, and troubleshooting.
 
@@ -25,8 +25,6 @@ photo-utils assets [--date YYYYMMDD] [--stage master|print|retouch|external] [--
 photo-utils recipe show ASSET_ID [--recipe-id RECIPE_ID]
 photo-utils history ASSET_ID
 photo-utils db check [--checksums]
-photo-utils db migrate [--root PATH] [--dry-run]
-photo-utils db cleanup [--root PATH] [--dry-run]
 ```
 
 Processing/query commands accept `--state-dir`; see their `--help` for all
@@ -104,17 +102,20 @@ Schema changes back up existing SQLite first and use repeatable transactions
 with foreign keys enabled.
 
 Routine processing writes no manifest/recipe/job JSON sidecars. JSON export is
-explicit. Legacy migration is repeatable, checks paths/checksums, reports
-ambiguity, and preserves supported metadata. Cleanup is a separate explicit
-command with dry-run support and only removes verified imported metadata;
-it does not remove images, unrelated JSON, or old naming ledgers.
+explicit. The user confirmed legacy metadata cleanup is complete. The one-time
+legacy import and cleanup commands have been removed; imported history remains
+in SQLite.
 
 ## Verification and known limits
 
+Application modules pass Pyright strict checking with Python 3.9 compatibility;
+`pyrightconfig.json` selects the project virtual environment. See README for
+the optional development checker and regression commands.
+
 - Direct physical `scanimage` acquisition was verified on this Mac at 600 dpi and 48-bit RGB (three 16-bit samples per pixel). Acquisition through the latest Python wrapper has simulated coverage, not a recorded physical verification. Higher advertised resolutions remain untested.
 - A real scanner sheet was split into four 16-bit RGB derivatives. Other sheet layouts and calibrated color appearance remain unverified.
-- The SQLite implementation passed 70 automated tests and an actual ImageMagick/ExifTool run on a synthetic TIFF with 16-bit RGB, sRGB, checksums, and no JSON sidecars.
-- The October 10 legacy import migrated 31 metadata files; database integrity and foreign keys passed. One old master reference was already missing. Legacy JSON cleanup was previewed, not executed. Details are in [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md).
+- The SQLite implementation passed 67 current automated tests and an actual ImageMagick/ExifTool run on a synthetic TIFF with 16-bit RGB, sRGB, checksums, and no JSON sidecars.
+- The October 10 legacy import migrated 31 metadata files; database integrity and foreign keys passed. One old master reference was already missing. The user subsequently confirmed legacy JSON cleanup is complete. Details are in [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md).
 
 ## Deferred requirements
 

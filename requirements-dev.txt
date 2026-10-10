@@ -1,0 +1,2 @@
+# Optional strict type checking; no production dependency changes.
+pyright==1.1.414

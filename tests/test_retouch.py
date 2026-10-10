@@ -16,7 +16,7 @@ from photo_utils.retouch import (
     _icc_profile,
     _source_metadata,
     _verify_output,
-    _write_tiff,
+    write_tiff as write_metadata_tiff,
     polaroid_magick_command,
     plan_retouch,
     retouch,
@@ -109,7 +109,7 @@ class RetouchPipelineTests(unittest.TestCase):
             image, metadata = _source_metadata(source)
             processed = np.minimum(image.astype(np.uint32) + 1000, 65535).astype(np.uint16)
             metadata["ICCProfile"] = Path(srgb_profile).read_bytes()
-            _write_tiff(output, processed, metadata)
+            write_metadata_tiff(output, processed, metadata)
 
         self.tool_patches = [
             patch("photo_utils.retouch.resolve_magick", return_value=Path("/fake/magick")),
@@ -221,7 +221,7 @@ class RetouchPipelineTests(unittest.TestCase):
         image, metadata = _source_metadata(tagged)
         self.assertEqual(metadata["ICCProfile"], profile)
         metadata["ICCProfile"] = self.srgb_profile_bytes
-        _write_tiff(tagged_output, image, metadata)
+        write_metadata_tiff(tagged_output, image, metadata)
         _verify_output(tagged_output, self.srgb_profile_bytes)
         self.assertEqual(_icc_profile(tagged_output), self.srgb_profile_bytes)
         with self.assertRaisesRegex(RetouchError, "requested sRGB"):

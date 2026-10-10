@@ -15,7 +15,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional, Sequence
+from typing import Generator, Optional, Sequence
 
 from .naming import allocate, master_id
 from . import database
@@ -70,7 +70,7 @@ def resolve_scanimage() -> Path:
 
 
 def parse_scanner_list(output: str) -> list[tuple[str, str]]:
-    devices = []
+    devices: list[tuple[str, str]] = []
     for line in output.splitlines():
         match = SCANNER_PATTERN.match(line)
         if match:
@@ -213,7 +213,7 @@ def connect_database(path: Path) -> sqlite3.Connection:
 
 
 @contextmanager
-def scan_lock(state_dir: Path) -> Iterator[None]:
+def scan_lock(state_dir: Path) -> Generator[None, None, None]:
     try:
         state_dir.mkdir(parents=True, exist_ok=True)
         lock_file = (state_dir / "scan.lock").open("a")
