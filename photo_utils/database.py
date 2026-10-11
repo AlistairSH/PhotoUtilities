@@ -504,7 +504,11 @@ def history(asset_id: str) -> Metadata:
             seen.add(row['asset_id'])
             lineage.append(dict(row))
             row = db.execute('SELECT * FROM assets WHERE asset_id=?',(row['parent_asset_id'],)).fetchone() if row['parent_asset_id'] else None
-        recipes = [dict(item) for item in db.execute('SELECT * FROM recipes WHERE source_asset_id=? OR output_asset_id=? ORDER BY julianday(created_at),created_at,recipe_id',(asset_id,asset_id))]
+        ancestor_ids = [item['asset_id'] for item in lineage]
+        placeholders = ','.join('?' for _ in ancestor_ids)
+        recipes = [dict(item) for item in db.execute(
+            f"SELECT * FROM recipes WHERE source_asset_id=? OR output_asset_id=? OR (stage='similarity' AND source_asset_id IN ({placeholders})) ORDER BY julianday(created_at),created_at,recipe_id",
+            [asset_id,asset_id]+ancestor_ids)]
         for item in recipes:
             item['payload'] = json.loads(item.pop('payload_json'))
         children = [dict(item) for item in db.execute('SELECT * FROM assets WHERE parent_asset_id=?',(asset_id,))]

@@ -1,7 +1,13 @@
 # PhotoUtilities
 
-Current project scope and confirmed decisions, updated October 10, 2026.
+Current project scope and confirmed decisions, updated October 11, 2026.
 See [README.md](./README.md) for installation, commands, and troubleshooting.
+
+## Status and next objective
+
+**Phase 1: functional / done-ish.** The documented 2x2 LiDE 400 Polaroid workflow has worked on actual samples: SANE 600 dpi 48-bit capture, four-print detection/rectification, fixed ImageMagick retouch, immutable TIFFs and SQLite job/asset/recipe tracking. Do not call it feature-complete: the updated Python acquisition wrapper has not been recorded as physically verified; mixed/touching layouts, calibrated ICC, broader input formats, Photos import and quality assessment are unimplemented. The README is the operational record; test counts below are historical, not results from this documentation change.
+
+**Phase 2: related-photo grouping is implemented and accepted.** The existing CLI uses local Vision + SIFT, SQLite source-asset relationships, a lightweight HTML report and the photo-toolkit skill. Technical quality assessment and further editing automation remain deferred. No generative image reconstruction.
 
 ## Current application
 
@@ -18,7 +24,8 @@ photo-utils doctor
 photo-utils scan [--root PATH] [--state-dir PATH] [--dry-run] [--retouch polaroid|none]
 photo-utils process-sheet SOURCE [--output-dir PATH] [--dry-run] [--retouch polaroid|none]
 photo-utils retouch TARGET [--output-dir PATH] [--profile polaroid] [--preview] [--version-history] [--dry-run]
-photo-utils jobs [--date YYYYMMDD] [--type scan|split|retouch] [--status STATUS] [--limit N]
+photo-utils similar TARGET... [--recursive] [--report PATH] [--no-db] [--dry-run] [--state-dir PATH]
+photo-utils jobs [--date YYYYMMDD] [--type scan|split|retouch|similarity] [--status STATUS] [--limit N]
 photo-utils job show JOB_ID
 photo-utils job export JOB_ID [--format json] [--output PATH]
 photo-utils assets [--date YYYYMMDD] [--stage master|print|retouch|external] [--status STATUS]
@@ -28,7 +35,7 @@ photo-utils db check [--checksums]
 ```
 
 Processing/query commands accept `--state-dir`; see their `--help` for all
-options. The menu offers Doctor, Scan, Retouch, History & Database, and Quit.
+options. The menu offers Doctor, Scan, Retouch, Related Groups, History & Database, and Quit.
 Submenu exit options are labelled Quit and exit the CLI; no Back navigation is implemented.
 Scan offers new acquisition or selection of an existing sheet. Only the
 interactive new-scan flow asks whether the sheet contains Polaroids; direct
@@ -42,7 +49,7 @@ touching/overlapping prints, and mixed layouts are not implemented.
 
 ## Confirmed user decisions
 
-- Keep application code, production processing, photos, and metadata local. No remote Git, cloud processing, telemetry, accounts, or paid service dependency.
+- Keep production processing, photos, and metadata local. The project now has an existing GitHub repository; experimental code may be developed on a branch, but no automatic push/merge, no photo/database commits, and no cloud processing, telemetry, accounts, or paid service dependency.
 - Preserve untouched sheet masters and extracted print sources. Never silently overwrite an image or automatically delete/reject photographs.
 - Use the fixed `polaroid` ImageMagick recipe on the entire 16-bit RGB print TIFF, including its border: sigmoidal contrast `4x35%`, gamma `1.70`, level `5%,98.5%`, gamma `1.09`, red-channel gamma `1.04`, sRGB profiling, and 16-bit output. The retired `faithful` profile is not a CLI option.
 - The user confirms the current polaroid profile works as intended. `photo_utils/retouch.py` defines its settings; SQLite recipes record the effective settings used for each output.
@@ -117,6 +124,45 @@ the optional development checker and regression commands.
 - A real scanner sheet was split into four 16-bit RGB derivatives. Other sheet layouts and calibrated color appearance remain unverified.
 - The SQLite implementation passed 67 current automated tests and an actual ImageMagick/ExifTool run on a synthetic TIFF with 16-bit RGB, sRGB, checksums, and no JSON sidecars.
 - The October 10 legacy import migrated 31 metadata files; database integrity and foreign keys passed. One old master reference was already missing. The user subsequently confirmed legacy JSON cleanup is complete. Details are in [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md).
+
+## Accepted similarity feature — October 11, 2026
+
+The user authorized integrating Vision <.45 OR strict SIFT into the existing
+toolkit, preserving image folders and adding a lightweight HTML review report
+beside images. `photo-utils similar` accepts standalone camera/lab photos;
+JPEG/HEIC recent test batches were camera images, not all scans. Original scans
+or camera images should be analyzed before manual edits. Reports list likely
+and potential groups and unmatched photos, with embedded previews and no
+diagnostic scores. Chaining is retained; no culling or photo relocation.
+
+Routine analysis is persisted in existing schema-v1 SQLite jobs/recipes linked
+to source asset identities. Derivative history includes inherited source
+similarity analysis. No additional tracking database or schema migration.
+`--no-db` and no-write `--dry-run` remain available. `scan`/`process-sheet`
+support opt-in `--find-similar`, after saving prints and before retouching.
+The saved-print output folder is the comparison set, normally all prints from
+that date. Existing processing without the flag is retained.
+
+The user requested an ordinary-print splitting placeholder: `--kind prints`
+must error with `Print Splitting Not Implemented Yet` before scanning/writing.
+Actual ordinary-print splitting remains deferred. The local photo-toolkit
+skill routes plain-English prompts to these commands; it is not an English
+parser or cloud inference dependency inside the CLI.
+
+Integration verification: 81 automated tests passed; strict Pyright reports zero
+errors. The integrated native CLI reproduced the existing 60-image grouping
+exactly (20 sets, seven unmatched), and the five HEIC images connected as one
+set. Persistence/integrity checks used isolated SQLite; the production database
+and source checksums were unchanged. Embedded previews and original links were
+checked, the Swift helper is included in the source distribution, and the
+installed skill passed its standard validator. Scan follow-up order has
+simulated coverage; no new physical scanner acquisition was performed.
+
+The user reviewed 13 recursive photo batches (1,205 original images), with
+143 candidate groups and 820 unmatched images, and accepted this as a permanent
+feature. Sources remained unchanged. Pure feasibility/benchmark scripts and
+historical experiment notes are retained only on `experiment/apple-vision`.
+Production regression tests remain with the feature.
 
 ## Deferred requirements
 

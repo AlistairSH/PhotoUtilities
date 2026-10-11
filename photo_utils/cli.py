@@ -2,7 +2,7 @@ import argparse
 import sys
 import shlex
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 from . import database, history_cli
 from .processing import (
@@ -12,6 +12,7 @@ from .processing import (
 )
 from .naming import identity
 from .retouch import RetouchError, RetouchOptions, retouch
+from .similarity import SimilarityError, find_similar
 from .scanning import (
     MODES,
     RESOLUTIONS,
@@ -77,6 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="polaroid",
         help="Process as a Polaroid (default) or leave the scanned sheet unsplit",
     )
+    scan.add_argument("--kind", choices=("polaroids", "prints"), default="polaroids",
+                      help="Sheet type; ordinary print splitting is not implemented yet")
+    scan.add_argument("--find-similar", action="store_true", help="Group saved prints before retouching; write a local HTML report")
 
     process = commands.add_parser(
         "process-sheet",
@@ -99,6 +103,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="polaroid",
         help="Retouch extracted prints using the polaroid profile (default: polaroid)",
     )
+    process.add_argument("--kind", choices=("polaroids", "prints"), default="polaroids",
+                         help="Sheet type; ordinary print splitting is not implemented yet")
+    process.add_argument("--find-similar", action="store_true", help="Group saved prints before retouching; write a local HTML report")
+
+    similar = commands.add_parser("similar", help="Find related photo groups with local Vision + SIFT")
+    similar.add_argument("targets", nargs="+", type=Path, help="Image files or folders; folders do not recurse by default")
+    similar.add_argument("--recursive", action="store_true", help="Include images in subfolders")
+    similar.add_argument("--report", type=Path, help="New HTML file; default: similarity.html beside the images, versioned on reruns")
+    similar.add_argument("--vision-threshold", type=float, default=.45, help="Vision candidate distance cutoff (default: .45)")
+    similar.add_argument("--dry-run", action="store_true", help="List the plan without decoding or writing anything")
+    similar.add_argument("--no-db", action="store_true", help="Create only the HTML report without SQLite persistence")
 
     retouch_command = commands.add_parser(
         "retouch",
@@ -114,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     jobs = commands.add_parser("jobs", help="List scan, split, and retouch jobs")
     jobs.add_argument("--limit", type=int, default=20)
     jobs.add_argument("--date", type=history_cli.date_argument)
-    jobs.add_argument("--type", choices=("scan","split","retouch"))
+    jobs.add_argument("--type", choices=("scan","split","retouch","similarity"))
     jobs.add_argument("--status", choices=("pending","running","completed","partial","failed"))
     assets = commands.add_parser("assets", help="Browse assets and parent relationships")
     assets.add_argument("--date", type=history_cli.date_argument)
@@ -139,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     db_actions = db.add_subparsers(dest="action",required=True)
     db_check = db_actions.add_parser("check")
     db_check.add_argument("--checksums", action="store_true",help="Also verify image SHA-256 checksums")
-    for command in (process,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
+    for command in (process,similar,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
         command.add_argument("--state-dir",type=Path,help="Local SQLite job database directory (default: configured state directory)")
     return parser
 
@@ -214,8 +229,14 @@ def process_and_retouch(
     output_dir: Optional[Path] = None,
     dry_run: bool = False,
     profile: str = "polaroid",
+    find_similar_groups: bool = False,
 ) -> None:
     outputs = process_sheet(source, output_dir=output_dir, dry_run=dry_run)
+    if find_similar_groups:
+        if dry_run:
+            print("After splitting: find similar groups in the saved prints, before retouching.")
+        elif outputs:
+            find_similar([outputs[0].parent])
     if not outputs or profile == "none":
         return
     if identity(outputs[0]):
@@ -230,9 +251,10 @@ def run_interactive_menu() -> int:
     print("  D) Doctor - check scanner availability")
     print("  S) Scan   - acquire and optionally process a sheet")
     print("  R) Retouch a TIFF or folder")
+    print("  G) Find related photo groups")
     print("  H) History & Database")
     print("  Q) Quit")
-    choice = prompt_choice("Select an action", "DSRHQ")
+    choice = prompt_choice("Select an action", "DSRGHQ")
     if choice == "q":
         return 0
     if choice == "d":
@@ -241,6 +263,12 @@ def run_interactive_menu() -> int:
 
     if choice == "h":
         history_cli.menu()
+        return 0
+    if choice == "g":
+        target = Path(input("Image folder: ").strip()).expanduser()
+        recursive = prompt_choice("Include subfolders?", "YN", default="N") == "y"
+        dry_run = prompt_choice("Dry run?", "YN", default="N") == "y"
+        find_similar([target], recursive=recursive, dry_run=dry_run)
         return 0
     if choice == "r":
         target = Path(input("TIFF or folder: ").strip()).expanduser()
@@ -251,10 +279,13 @@ def run_interactive_menu() -> int:
     print("\nScan")
     print("  S) Scan a new sheet")
     print("  P) Process an existing Polaroid sheet (then retouch the prints)")
+    print("  T) Ordinary print page (not implemented yet)")
     print("  Q) Quit")
-    scan_choice = prompt_choice("Select an action", "SPQ", default="S")
+    scan_choice = prompt_choice("Select an action", "SPTQ", default="S")
     if scan_choice == "q":
         return 0
+    if scan_choice == "t":
+        raise ProcessingError("Print Splitting Not Implemented Yet")
 
     root = default_root()
     if scan_choice == "p":
@@ -296,12 +327,21 @@ def run_interactive_menu() -> int:
     return 0
 
 
+def configuration_value(value: Any) -> Any:
+    """Convert argparse paths, including multi-target lists, for job provenance."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return [configuration_value(item) for item in cast(Sequence[Any], value)]
+    return value
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     state_token = database.STATE.set(getattr(args,"state_dir",None))
     command_token = database.CLI_COMMAND.set("photo-utils " + shlex.join(list(argv) if argv is not None else sys.argv[1:]))
-    config_token = database.CLI_CONFIG.set({name:str(value) if isinstance(value,Path) else value for name,value in vars(args).items()})
+    config_token = database.CLI_CONFIG.set({name:configuration_value(value) for name,value in vars(args).items()})
     try:
         if args.command is None:
             if not sys.stdin.isatty():
@@ -317,6 +357,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.command == "doctor":
             doctor()
         elif args.command == "scan":
+            if args.kind == "prints":
+                raise ProcessingError("Print Splitting Not Implemented Yet")
+            if args.find_similar and args.retouch == "none":
+                raise ProcessingError("--find-similar requires a split sheet; scan --retouch none keeps the sheet unsplit.")
             output_path = run_scan(
                 folder=args.folder,
                 root=args.root,
@@ -327,14 +371,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 dry_run=args.dry_run,
             )
             if output_path is not None and args.retouch == "polaroid":
-                process_and_retouch(output_path, profile=args.retouch)
+                if args.find_similar:
+                    process_and_retouch(output_path, profile=args.retouch, find_similar_groups=True)
+                else:
+                    process_and_retouch(output_path, profile=args.retouch)
+            elif args.dry_run and args.find_similar:
+                print("After scanning: split/rotate/save, find related groups, then apply the Polaroid recipe.")
         elif args.command == "process-sheet":
+            if args.kind == "prints":
+                raise ProcessingError("Print Splitting Not Implemented Yet")
             process_and_retouch(
                 args.source,
                 output_dir=args.output_dir,
                 dry_run=args.dry_run,
                 profile=args.retouch,
+                **({"find_similar_groups": True} if args.find_similar else {}),
             )
+        elif args.command == "similar":
+            find_similar(args.targets, recursive=args.recursive, report=args.report,
+                         dry_run=args.dry_run, no_db=args.no_db, threshold=args.vision_threshold,
+                         state_dir=args.state_dir)
         elif args.command == "retouch":
             retouch(
                 args.target,
@@ -348,7 +404,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         elif args.command in {"jobs","job","assets","recipe","history","db"}:
             return history_cli.dispatch(args)
-    except (ScanError, ProcessingError, RetouchError, database.DatabaseError, OSError) as exc:
+    except (ScanError, ProcessingError, RetouchError, SimilarityError, database.DatabaseError, OSError) as exc:
         print(f"photo-utils: error: {exc}", file=sys.stderr)
         return 1
     except EOFError:

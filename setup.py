@@ -6,6 +6,7 @@ setup(
     version="0.1.0",
     description="Local-first photo utilities",
     packages=find_packages(exclude=("tests", "tests.*")),
+    package_data={"photo_utils": ["native/*.swift"]},
     python_requires=">=3.9",
     install_requires=[
         "numpy==2.0.2",

@@ -9,7 +9,7 @@ completed work. Preserve unrelated user work. Keep a short plan for multi-step
 changes and carry authorized work through implementation and verification.
 
 ## Local-only development
-- Work in this local project. Git is optional and local only; never create a remote, push, publish, deploy, or upload source code or photos.
+- Work in this local project. The project now has an existing GitHub remote. Use a dedicated branch for new development; never change `main`, push, publish, open a PR, merge, or upload photos without explicit user authorization. Local commits on the experimental branch are allowed. Do not create a new remote.
 - Production processing and metadata storage must remain offline and local. Do not add telemetry, remote image APIs, or accounts.
 - Public documentation and dependency downloads are allowed for development; keep private images out of those requests.
 - Keep photo data and databases outside the repository and out of Git. Documents may be iCloud-synced; do not assume it is genuinely local storage.
@@ -23,6 +23,14 @@ changes and carry authorized work through implementation and verification.
 - Keep retouching reproducible and non-destructive. Preserve the confirmed Polaroid recipe, TIFF depth, and color-management behavior unless the user requests a change.
 - Never alter Apple Photos library internals. Any future Photos integration must use supported local interfaces and explicit import actions.
 
+## Established similarity workflow
++- Related-photo grouping is accepted production functionality: `photo-utils similar` uses local Vision revision 2 distance <.45 OR strict SIFT. Preserve the tested rule unless the user asks to change it; hashes and Czkawka are not production signals.
++- Analyze original scans/camera images before manual edits when available. Similarity never scans, retouches, moves, deletes, imports to Photos or transmits images. Results are candidates for manual review, with chaining, not identity or quality verdicts.
++- Retain the clean image layout and one self-contained HTML report beside images. Persist routine scores/settings/groups against source assets in existing SQLite, with `--no-db` and no-write `--dry-run` options. Derivative history inherits source analysis rather than pretending edited pixels were reassessed.
++- `scan` and `process-sheet` have opt-in `--find-similar`, after saving prints and before retouching. The four-Polaroid splitter remains the supported layout. `--kind prints` deliberately fails before acquisition/writes with `Print Splitting Not Implemented Yet`.
++- Technical quality assessment, digital archival, RAW/Photos integration and other roadmap items remain deferred. Vision similarity is not a focus classifier; no automatic culling or generative reconstruction.
++- Keep pure feasibility/benchmark artifacts on `experiment/apple-vision`; production modules, regression tests, documentation and the photo-toolkit skill belong on `main`. Do not push/merge without explicit authorization.
+
 ## Engineering approach
 - Extend the existing Python CLI and small modules. Reuse configuration, persistence, locks, logging, and tests; avoid unrelated refactoring or dependency changes.
 - Document actual parser command names and menu choices consistently. Do not present deferred features as available or treat them as a current assignment.
@@ -30,7 +38,7 @@ changes and carry authorized work through implementation and verification.
 - Verify new hardware/backend capabilities on this Mac; do not invent scanner flags, RAW support, Photomator automation, or Photos APIs. Use official documentation when external verification is needed.
 - Use the project virtual environment. Never use `sudo pip`, replace system Python, or modify system tooling casually. Explain material installs and permissions; proceed with routine reversible project setup.
 - Quote shell paths containing spaces. Avoid hardcoded usernames and machine-specific absolute paths in code.
-- Do not enable watchers, a web app, cloud services, AI models, elaborate UI, or paid dependencies without a concrete user requirement.
+- Do not enable watchers, a web app, cloud services, hosted image inference, elaborate UI, or paid dependencies without a concrete user requirement. The accepted local similarity feature does not authorize blanket deployment of deferred roadmap features.
 - If digital archival or quality screening is later implemented, verify archived byte-for-byte copies before derivatives and never automatically delete/reject photos based on a score. Preserve RAW/media companions and flag uncertain cases conservatively.
 
 ## Verification and continuity
