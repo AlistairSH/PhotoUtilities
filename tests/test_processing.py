@@ -198,6 +198,7 @@ class ProcessingTests(unittest.TestCase):
             output_dir=None,
             dry_run=True,
             profile="polaroid",
+            focus_review=True,
         )
 
     def test_menu_selects_recent_sheet_and_prompts_for_dry_run(self):

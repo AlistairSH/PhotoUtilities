@@ -13,6 +13,9 @@ from .processing import (
 from .naming import identity
 from .retouch import RetouchError, RetouchOptions, retouch
 from .similarity import SimilarityError, find_similar
+from .batch import process_batch
+from .review_server import serve_review
+from .review_archive import restore_archive
 from .scanning import (
     MODES,
     RESOLUTIONS,
@@ -107,8 +110,25 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Sheet type; ordinary print splitting is not implemented yet")
     process.add_argument("--find-similar", action="store_true", help="Group saved prints before retouching; write a local HTML report")
 
+    scan.add_argument("--no-focus-review", dest="focus_review", action="store_false", help="Skip experimental grouping/focus review")
+    process.add_argument("--no-focus-review", dest="focus_review", action="store_false", help="Skip experimental grouping/focus review")
+
+    batch = commands.add_parser("process", help="Process image folders: orientation-aware grouping and focus review before optional TIFF edits")
+    batch.add_argument("targets", nargs="+", type=Path)
+    batch.add_argument("--recursive", action="store_true")
+    batch.add_argument("--report", type=Path)
+    batch.add_argument("--retouch", choices=("none","polaroid"), default="none", help="Existing Polaroid TIFF recipe only; default: analysis without edits")
+    batch.add_argument("--dry-run", action="store_true")
+    batch.add_argument("--no-db", action="store_true")
+    review = commands.add_parser("review", help="Open a local interactive review session for a completed focus job")
+    review.add_argument("job_id")
+    review.add_argument("--archive-root", type=Path, help="Default: PhotoScans/Blurry; must share sources filesystem")
+    restore = commands.add_parser("restore-archive", help="Restore files moved by a review-archive job; keep verified ZIP")
+    restore.add_argument("job_id")
+
     similar = commands.add_parser("similar", help="Find related photo groups with local Vision + SIFT")
     similar.add_argument("targets", nargs="+", type=Path, help="Image files or folders; folders do not recurse by default")
+    similar.add_argument("--focus-review", action="store_true", help="Include experimental focus suggestions and relative group highlights")
     similar.add_argument("--recursive", action="store_true", help="Include images in subfolders")
     similar.add_argument("--report", type=Path, help="New HTML file; default: similarity.html beside the images, versioned on reruns")
     similar.add_argument("--vision-threshold", type=float, default=.45, help="Vision candidate distance cutoff (default: .45)")
@@ -126,10 +146,10 @@ def build_parser() -> argparse.ArgumentParser:
     retouch_command.add_argument("--preview", action="store_true", help="Write labeled before/after JPEG previews")
     retouch_command.add_argument("--dry-run", action="store_true", help="Report the recipe without writing outputs")
 
-    jobs = commands.add_parser("jobs", help="List scan, split, and retouch jobs")
+    jobs = commands.add_parser("jobs", help="List scan, split, retouch, similarity and review-archive jobs")
     jobs.add_argument("--limit", type=int, default=20)
     jobs.add_argument("--date", type=history_cli.date_argument)
-    jobs.add_argument("--type", choices=("scan","split","retouch","similarity"))
+    jobs.add_argument("--type", choices=("scan","split","retouch","similarity","review-archive"))
     jobs.add_argument("--status", choices=("pending","running","completed","partial","failed"))
     assets = commands.add_parser("assets", help="Browse assets and parent relationships")
     assets.add_argument("--date", type=history_cli.date_argument)
@@ -154,7 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     db_actions = db.add_subparsers(dest="action",required=True)
     db_check = db_actions.add_parser("check")
     db_check.add_argument("--checksums", action="store_true",help="Also verify image SHA-256 checksums")
-    for command in (process,similar,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
+    for command in (batch,review,restore,process,similar,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
         command.add_argument("--state-dir",type=Path,help="Local SQLite job database directory (default: configured state directory)")
     return parser
 
@@ -230,13 +250,14 @@ def process_and_retouch(
     dry_run: bool = False,
     profile: str = "polaroid",
     find_similar_groups: bool = False,
+    focus_review: bool = False,
 ) -> None:
     outputs = process_sheet(source, output_dir=output_dir, dry_run=dry_run)
-    if find_similar_groups:
+    if find_similar_groups or focus_review:
         if dry_run:
-            print("After splitting: find similar groups in the saved prints, before retouching.")
+            print("After splitting: group saved prints and flag focus for review before retouching." if focus_review else "After splitting: find similar groups in the saved prints, before retouching.")
         elif outputs:
-            find_similar([outputs[0].parent])
+            find_similar(outputs, focus=True) if focus_review else find_similar([outputs[0].parent])
     if not outputs or profile == "none":
         return
     if identity(outputs[0]):
@@ -371,12 +392,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 dry_run=args.dry_run,
             )
             if output_path is not None and args.retouch == "polaroid":
-                if args.find_similar:
-                    process_and_retouch(output_path, profile=args.retouch, find_similar_groups=True)
-                else:
-                    process_and_retouch(output_path, profile=args.retouch)
-            elif args.dry_run and args.find_similar:
-                print("After scanning: split/rotate/save, find related groups, then apply the Polaroid recipe.")
+                process_and_retouch(output_path, profile=args.retouch,
+                                    find_similar_groups=args.find_similar, focus_review=args.focus_review)
+            elif args.dry_run and args.retouch == "polaroid":
+                print("After scanning: split/rotate/save, group and review focus, then apply the Polaroid recipe.")
         elif args.command == "process-sheet":
             if args.kind == "prints":
                 raise ProcessingError("Print Splitting Not Implemented Yet")
@@ -386,11 +405,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 dry_run=args.dry_run,
                 profile=args.retouch,
                 **({"find_similar_groups": True} if args.find_similar else {}),
+                focus_review=args.focus_review,
             )
         elif args.command == "similar":
             find_similar(args.targets, recursive=args.recursive, report=args.report,
                          dry_run=args.dry_run, no_db=args.no_db, threshold=args.vision_threshold,
-                         state_dir=args.state_dir)
+                         state_dir=args.state_dir, focus=args.focus_review)
+        elif args.command == "process":
+            process_batch(args.targets, recursive=args.recursive, report=args.report,
+                          profile=args.retouch, dry_run=args.dry_run, no_db=args.no_db)
+        elif args.command == "review":
+            serve_review(args.job_id, archive_root=args.archive_root)
+        elif args.command == "restore-archive":
+            restore_archive(args.job_id)
         elif args.command == "retouch":
             retouch(
                 args.target,

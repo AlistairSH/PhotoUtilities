@@ -1,10 +1,13 @@
 # PhotoUtilities
 
 An offline Mac CLI for Canon LiDE 400 scanner acquisition, four-print Polaroid
-sheet splitting, TIFF retouching, related-photo grouping, and SQLite processing history. It preserves
-source images and writes separate TIFF derivatives. 
+sheet splitting, TIFF retouching, related-photo grouping, and SQLite processing history.
+On `experiment/ranking-culling`, the CLI also provides experimental focus review,
+relative group focus highlights, and explicit reversible review archives. Normal
+analysis preserves sources; requested archives move verified copies out of active
+folders and retain a ZIP plus original files for recovery.
 
-Future features: Digital JPEG/HEIC/RAW ingestion, Apple Photos import, Photomator automation, Shortcuts, and watchers
+Future features: General digital/RAW archival ingestion, Apple Photos import, Photomator automation, Shortcuts, and watchers
 are not implemented.
 
 ## Quick start
@@ -17,6 +20,105 @@ are not implemented.
    .venv/bin/photo-utils
    ```
    
+
+## Experimental branch: batch focus review and archiving
+
+This integration is on `experiment/ranking-culling` only; it has not been
+merged into `main`. It proposes manual review, never automatic rejection.
+
+```sh
+# Scan a supported four-Polaroid page: split/rotate, group/focus, then existing edits.
+.venv/bin/photo-utils scan --kind polaroids
+
+# Process a saved supported Polaroid master with the same flow.
+.venv/bin/photo-utils process-sheet "/path/to/master.tif" --kind polaroids
+
+# Process one or several JPEG/HEIC/PNG/single-image TIFF folders.
+.venv/bin/photo-utils process "/path/to/folder-one" "/path/to/folder-two"
+.venv/bin/photo-utils process "/path/to/rolls" --recursive
+
+# Explicitly request the existing edit recipe on a batch of Polaroid TIFFs.
+.venv/bin/photo-utils process "/path/to/polaroid-tiffs" --retouch polaroid
+
+# Add focus review without changing the existing analysis-only similarity command.
+.venv/bin/photo-utils similar "/path/to/photos" --focus-review
+
+# Start the report's interactive archive controls (job ID printed after processing).
+.venv/bin/photo-utils review REVIEW_JOB_ID
+
+# Restore an explicit review archive to original paths; no overwrites.
+.venv/bin/photo-utils restore-archive ARCHIVE_JOB_ID
+```
+
+`process` honors embedded image orientation when decoding; it does not guess
+upright orientation for untagged photos or rewrite JPEG/HEIC originals. Folders
+are shallow unless `--recursive` is supplied. A combined report is written beside
+the first target; `--report /existing/folder/new.html` selects another destination.
+Reruns choose numbered versions; explicit filenames refuse collisions. Scanner
+masters, existing retouches and `Blurry` archives are excluded from folder batch
+processing. Maximum 500 source images; grouping remains Vision revision 2 <.45
+OR strict SIFT. Similarity alone still does not edit/move photos. Default scan
+and process-sheet now include grouping/focus before the existing TIFF edits;
+`--no-focus-review` restores the previous split/retouch flow. `scan --retouch none`
+still preserves an unsplit master. Ordinary print splitting remains unimplemented:
+`--kind prints` fails explicitly before acquisition/writes.
+
+The only implemented edit profile is the existing Polaroid TIFF recipe. Folder
+processing defaults to `--retouch none`; requesting the Polaroid profile on
+JPEG/HEIC inputs fails before processing rather than inventing digital edits.
+Edits remain separate derivatives with SQLite history. `--dry-run` is no-write;
+`--no-db` produces an analysis-only report without archive controls or edits.
+All commands accept `--state-dir` for an isolated database.
+
+Focus uses original sRGB pixels at 1024 and 2048 with Gaussian sigma 1. Baseline
+Yes always remains Yes. Baseline uses relative subject/background measurements,
+attention only when no other usable region exists, and a batch-bottom-10% global
+rule (requires at least 20 images; ties conservative). The additional score is
+contrast-aware edge spread, with the tested single-scale semantic confirmation
+and no-semantic objectness fallback. Unsupported regions cannot clear flags.
+Mixed material batches may change the relative baseline; no universal material
+calibration is claimed. Landmark and normalized-patch overrides are not used.
+
+Similar groups highlight relative sharper/softer candidates only for directly
+matched photos, comparable subject kind/count/area, and at least a 1.5× difference
+in both selected focus metrics at both sizes. This conservative new group
+heuristic is not calibrated; texture, grain and framing can affect it. Relative
+highlights do not change general focus-review flags. Reports contain the flags,
+explanations, detection boxes, and original-image links; numerical evidence and
+settings are persisted in the existing SQLite jobs/recipes for reproducibility.
+
+A portable static report allows Delete/Undo selection, but cannot move files.
+`review JOB_ID` prints a temporary tokenized loopback URL; open it while the
+command is running to enable **Archive deleted photos**. Stop with Ctrl-C.
+No watcher, public server, remote service or account is added. State and mutations
+require the session token; archive requests reject foreign origins/hosts and
+arbitrary filesystem paths. Selections are manually chosen and confirmed; the
+focus flag never starts an archive automatically. Selections are not saved across
+page reloads. Archived status is recovered from SQLite.
+
+Archives default to the configured scan root's `Blurry/<archive-job-id>/`:
+`deleted-photos.zip` plus retained `originals/`. Contents are SHA-256 verified
+before any source moves, destinations refuse collisions, source changes abort,
+and move failures roll back where possible. Matching sidecars/RAW/media companions
+and tracked derivatives are included; parent scanner masters are protected.
+No original bytes are permanently removed. Asset identities, dates and lineage
+remain in SQLite, with updated archived locations/status and original paths.
+The ZIP index records original paths; no routine manifest sidecar or new database
+is introduced. Stored ZIP compression favors predictable speed; retained originals
+mean roughly two archive copies. `review --archive-root /path/on/same/filesystem`
+selects another destination. Source and archive must share a filesystem for the
+no-clobber move. Restore verifies retained originals and refuses occupied paths;
+the ZIP remains. Interrupted archive jobs have a stored plan and can be recovered
+with the same restore command; all published data is retained on failure.
+
+Streaming native pixels avoids a multi-gigabyte temporary batch export. Only
+Gaussian1 is measured during routine focus processing; unrelated experimental
+filters/patches are omitted. Similarity pair comparisons still grow quadratically.
+On this Mac, a cached-helper 92-image combined run took about 82 seconds, retained
+all ten reviewed focus misses and produced 45 review flags. This is development-set
+verification, not independently validated accuracy or a guarantee for every batch.
+Physical acquisition of the latest scanner wrapper remains separately unverified.
+
 ## Installation
 
 Run from the project directory. Python 3.9 or newer is required; the Python

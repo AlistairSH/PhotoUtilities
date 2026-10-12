@@ -297,4 +297,4 @@ class RetouchPipelineTests(unittest.TestCase):
         with patch("photo_utils.cli.run_scan", return_value=self.source):
             with patch("photo_utils.cli.process_and_retouch") as pipeline:
                 self.assertEqual(main(["scan"]), 0)
-        pipeline.assert_called_once_with(self.source, profile="polaroid")
+        pipeline.assert_called_once_with(self.source, profile="polaroid", find_similar_groups=False, focus_review=True)

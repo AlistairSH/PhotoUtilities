@@ -6,6 +6,7 @@ import math
 import os
 import platform
 import sqlite3
+import shlex
 import tempfile
 import time
 import uuid
@@ -31,20 +32,23 @@ PARAMETERS: dict[str, Any] = {
 }
 
 
-def collect_images(targets: Sequence[Path], recursive: bool = False) -> list[Path]:
+def collect_images(targets: Sequence[Path], recursive: bool = False, *, skip_generated: bool = False) -> list[Path]:
     found: set[Path] = set()
+    def excluded(path: Path) -> bool:
+        return skip_generated and (any(part in ('Blurry','retouches','masters') for part in path.parts)
+            or 'retouched' in path.stem or '-retouch' in path.stem)
     for target in targets:
         target = target.expanduser().resolve()
         if target.is_file():
             if target.suffix.lower() not in EXTENSIONS:
                 raise SimilarityError(f'Unsupported image extension: {target}')
-            found.add(target)
+            if not excluded(target):found.add(target)
         elif target.is_dir():
             for path in target.rglob('*') if recursive else target.iterdir():
                 if (path.is_file() and path.suffix.lower() in EXTENSIONS
                         and not any(part.startswith('.') for part in path.relative_to(target).parts)
                         and '.partial' not in path.name and '.before-after.' not in path.name):
-                    found.add(path.resolve())
+                    if not excluded(path):found.add(path.resolve())
         else:
             raise SimilarityError(f'Image or folder does not exist: {target}')
     if not found:
@@ -124,7 +128,7 @@ def components(count: int, pairs: Sequence[dict[str, Any]], *, likely_only: bool
     return sorted(groups, key=lambda group: (-len(group), group))
 
 
-def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45) -> dict[str, Any]:
+def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45, *, focus: bool = False) -> dict[str, Any]:
     images: list[dict[str, Any]] = []
     features: list[dict[str, Any]] = []
     pairs: list[dict[str, Any]] = []
@@ -132,7 +136,9 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
     completed = False
     detector: Any = cast(Any, cv2).SIFT_create(nfeatures=500)
     matcher = cv2.BFMatcher(cv2.NORM_L2)
-    for row in native_rows(paths):
+    focus_rows: list[dict[str, Any]] = []
+    stream = native_rows(paths, focus=True) if focus else native_rows(paths)
+    for row in stream:
         if completed:
             raise SimilarityError('Unexpected native output after completion.')
         if row['type'] == 'image':
@@ -143,6 +149,9 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
             if min(w, h) < 1 or max(w, h) > 1024:
                 raise SimilarityError('Invalid native preview dimensions.')
             rgba = np.frombuffer(base64.b64decode(row['rgba'], validate=True), np.uint8).reshape(h, w, 4)
+            if focus:
+                from .focus import measure
+                focus_rows.append(measure(rgba[:, :, :3], row['detectors'], row['path'], 1024))
             gray = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2GRAY)
             keypoints, descriptors = detector.detectAndCompute(gray, None)
             features.append({'points': np.asarray([k.pt for k in cast(Sequence[Any], keypoints)], dtype=np.float32),
@@ -155,8 +164,19 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
                 raise SimilarityError('Could not encode local report thumbnail.')
             images.append({'path': str(paths[index]), 'sha256': hashes[index], 'width': w,
                            'height': h, 'sift_features': len(keypoints),
-                           'thumbnail': base64.b64encode(encoded.tobytes()).decode('ascii')})
+                           'thumbnail': base64.b64encode(encoded.tobytes()).decode('ascii'),
+                           **({'detectors':row['detectors']} if focus else {})})
             print(f'Analyzed {index + 1}/{len(paths)} images', flush=True)
+        elif row['type'] == 'focus':
+            if not focus or not images or row['index'] != len(images)-1 or row['path'] != images[-1]['path'] or row['max_dimension'] != 2048:
+                raise SimilarityError('Invalid focus row identity.')
+            if len(focus_rows) != 2*len(images)-1:
+                raise SimilarityError('Missing or duplicate focus resolution.')
+            w,h=int(row['width']),int(row['height'])
+            if min(w,h)<1 or max(w,h)>2048:raise SimilarityError('Invalid focus image dimensions.')
+            rgba=np.frombuffer(base64.b64decode(row['rgba'],validate=True),np.uint8).reshape(h,w,4)
+            from .focus import measure
+            focus_rows.append(measure(rgba[:,:,:3],row['detectors'],row['path'],2048))
         elif row['type'] == 'pair':
             a, b = int(row['a']), int(row['b'])
             if len(images) != len(paths) or not 0 <= a < b < len(paths) or (a, b) in seen_pairs:
@@ -182,9 +202,18 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
             unmatched.extend(members)
         else:
             groups.append({'members': members, 'level': 'likely' if members in strong else 'potential'})
-    return {'analyzer': VERSION, 'parameters': {**PARAMETERS, 'vision_threshold': threshold},
+    result = {'analyzer': VERSION, 'parameters': {**PARAMETERS, 'vision_threshold': threshold},
             'backends': {'opencv': cv2.__version__, 'numpy': np.__version__, 'os': platform.platform()},
             'images': images, 'pairs': pairs, 'groups': groups, 'unmatched': sorted(unmatched)}
+    if focus:
+        if len(focus_rows)!=2*len(paths):raise SimilarityError('Incomplete focus measurements.')
+        from .focus import decisions, relative_focus, PARAMETERS as FOCUS_PARAMETERS, VERSION as FOCUS_VERSION
+        by_path={d['path']:d for d in decisions(focus_rows)}
+        for image in images:image['focus_review']=by_path[image['path']]
+        result['focus_parameters']=FOCUS_PARAMETERS;result['focus_version']=FOCUS_VERSION
+        result['focus_rows']=focus_rows
+        relative_focus(result,focus_rows)
+    return result
 
 
 def report_location(targets: Sequence[Path], paths: Sequence[Path], report: Optional[Path]) -> Path:
@@ -245,6 +274,8 @@ def persist_result(db: sqlite3.Connection, job: str, result: dict[str, Any]) -> 
         payload = {'algorithm': VERSION, 'parameters': result['parameters'], 'source_sha256': image['sha256'],
                    'group': membership, 'report': result['report'], 'review': 'unreviewed',
                    'disposition': 'candidate' if membership is not None else 'unmatched'}
+        if 'focus_review' in image:
+            payload['focus_review']=image['focus_review'];payload['focus_comparison']=image.get('focus_comparison')
         db.execute('INSERT INTO recipes VALUES (?,?,?,?,?,?,?,?)',
                    (uuid.uuid5(uuid.NAMESPACE_URL, f'{job}:{asset_id}:similarity').hex, job, asset_id,
                     None, 'similarity', database.now(), VERSION, database.encode(payload)))
@@ -252,11 +283,12 @@ def persist_result(db: sqlite3.Connection, job: str, result: dict[str, Any]) -> 
 
 def find_similar(targets: Sequence[Path], *, recursive: bool = False, report: Optional[Path] = None,
                  dry_run: bool = False, no_db: bool = False, threshold: float = .45,
-                 state_dir: Optional[Path] = None) -> Optional[Path]:
+                 state_dir: Optional[Path] = None, focus: bool = False) -> Optional[Path]:
     if not math.isfinite(threshold) or not 0 < threshold <= 2:
         raise SimilarityError('Vision threshold must be finite and in (0, 2].')
     paths = collect_images(targets, recursive)
     destination = report_location(targets, paths, report)
+    if focus:print('Focus review: Gaussian1 baseline + contrast/scale confirmation; originals analyzed before edits.')
     print(f'Similarity: {len(paths)} images, {len(paths) * (len(paths) - 1) // 2} comparisons; Vision <{threshold:g} OR SIFT')
     print(f'Report: {destination} (a new numbered version if occupied)' if report is None else f'Report: {destination}')
     if dry_run:
@@ -289,10 +321,15 @@ def find_similar(targets: Sequence[Path], *, recursive: bool = False, report: Op
         published: Optional[Path] = None
         tick = time.perf_counter()
         try:
-            result = analyze(paths, hashes, threshold)
+            result = analyze(paths, hashes, threshold, focus=True) if focus else analyze(paths, hashes, threshold)
+            result['job_id']=job;result['archive_enabled']=not no_db
+            result['state_dir']=str(database.state_dir())
             if hashes != [database.digest(p) for p in paths]:
                 raise SimilarityError('Source image changed during analysis; no report was published.')
-            from .similarity_report import render
+            if focus:
+                from .focus_report import render
+            else:
+                from .similarity_report import render
             published = publish_report(destination, render(result, destination, started), versioned=report is None)
             result['report'] = str(published)
             result['report_sha256'] = database.digest(published)
@@ -310,6 +347,8 @@ def find_similar(targets: Sequence[Path], *, recursive: bool = False, report: Op
             print(f'Saved: {published}')
             if not no_db:
                 print(f'Similarity job: {job}')
+                if focus:
+                    print('Interactive Delete/ZIP review: '+shlex.join(['photo-utils','review',job,'--state-dir',str(database.state_dir())]))
             return published
         except BaseException as exc:
             if not no_db:

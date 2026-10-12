@@ -56,3 +56,22 @@ Maintain README installation, exact commands, data layout, configuration,
 troubleshooting and maintenance guidance. Update PROJECT when requirements
 or implemented scope change; preserve confirmed decisions and distinguish deferred
 work. Report relevant verification and remaining limitations concisely.
+
+
+## Current experimental branch workflow
+
+The user explicitly authorized focus/culling CLI integration on
+`experiment/ranking-culling` only (not merge/push). On this branch, natural-language
+“process these folders” maps to `photo-utils process TARGET...`; “scan this page
+and process” maps to the supported Polaroid scan workflow, including grouping/focus
+before existing edits. Ordinary print splitting remains an explicit error. Read
+README for the branch-only commands and supported formats/edits. Do not apply a
+Polaroid recipe to arbitrary digital photos. Focus flags and relative highlights
+are suggestions. Do not automatically archive flagged or softer images.
+
+The user expressly authorized manual reversible review archives. Only explicit
+Delete selections followed by archive confirmation may move selected images,
+companions and tracked derivatives to verified Blurry archives. Scanner masters
+remain protected. Retain original bytes, IDs/dates/lineage, record job states and
+recoverability, refuse changes/collisions, and never convert the soft archive into
+a permanent purge. Use the existing jobs.sqlite3 for routine metadata.

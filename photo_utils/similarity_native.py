@@ -8,6 +8,8 @@ import os
 import platform
 import shutil
 import subprocess
+import selectors
+import time
 import tempfile
 from pathlib import Path
 from typing import Any, Iterator, Sequence, cast
@@ -45,24 +47,45 @@ def native_helper() -> Path:
     return target
 
 
-def native_rows(paths: Sequence[Path]) -> Iterator[dict[str, Any]]:
+def native_rows(paths: Sequence[Path], *, focus: bool = False) -> Iterator[dict[str, Any]]:
     helper = native_helper()
-    # Spill native JSON lines to temporary storage instead of buffering every
-    # 1024px RGBA preview in memory. Temporary pixels are removed on any exit.
-    with tempfile.TemporaryFile() as output:
+    # Stream bounded pixel rows instead of spilling multi-gigabyte RGBA batch
+    # exports to disk. Backpressure keeps at most one image row buffered.
+    deadline=time.monotonic()+max(180,len(paths)*10)
+    with tempfile.TemporaryFile() as errors:
+        process=subprocess.Popen([str(helper)]+(["--focus"] if focus else []),
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=errors)
+        assert process.stdin is not None and process.stdout is not None
+        selector=selectors.DefaultSelector()
         try:
-            result = subprocess.run([str(helper)], input=json.dumps([str(p) for p in paths]).encode(),
-                                    stdout=output, stderr=subprocess.PIPE, timeout=max(180, len(paths) * 10))
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            process.stdin.write(json.dumps([str(p) for p in paths]).encode())
+            process.stdin.close()
+            selector.register(process.stdout,selectors.EVENT_READ)
+            buffer=bytearray()
+            while True:
+                remaining=deadline-time.monotonic()
+                if remaining<=0 or not selector.select(remaining):raise SimilarityError('Local Vision analysis timed out.')
+                chunk=os.read(process.stdout.fileno(),1024*1024)
+                if not chunk:break
+                buffer.extend(chunk)
+                if len(buffer)>64*1024*1024:raise SimilarityError('Native response exceeded the image-row limit.')
+                while True:
+                    newline=buffer.find(b'\n')
+                    if newline<0:break
+                    line=bytes(buffer[:newline]);del buffer[:newline+1]
+                    row=json.loads(line)
+                    if not isinstance(row,dict):raise SimilarityError('Expected a native JSON object.')
+                    yield cast(dict[str,Any],row)
+            if buffer:raise SimilarityError('Incomplete native JSON line.')
+            result=process.wait(timeout=max(1.,deadline-time.monotonic()))
+            if result:
+                errors.seek(0)
+                raise SimilarityError('Local Vision analysis failed: '+errors.read().decode(errors='replace').strip())
+        except (ValueError,UnicodeError,OSError,subprocess.TimeoutExpired) as exc:
             raise SimilarityError(f'Local Vision analysis failed: {exc}') from exc
-        if result.returncode:
-            raise SimilarityError('Local Vision analysis failed: ' + result.stderr.decode(errors='replace').strip())
-        output.seek(0)
-        try:
-            for line in output:
-                row = json.loads(line)
-                if not isinstance(row, dict):
-                    raise ValueError('Expected a JSON object')
-                yield cast(dict[str, Any], row)
-        except (ValueError, UnicodeError) as exc:
-            raise SimilarityError(f'Invalid response from local Vision helper: {exc}') from exc
+        finally:
+            selector.close()
+            if process.poll() is None:
+                process.kill();process.wait()
+            process.stdout.close()
+            if not process.stdin.closed:process.stdin.close()

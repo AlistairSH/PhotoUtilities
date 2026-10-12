@@ -1,6 +1,6 @@
 # PhotoUtilities
 
-Current project scope and confirmed decisions, updated October 11, 2026.
+Current project scope and confirmed decisions, updated October 12, 2026.
 See [README.md](./README.md) for installation, commands, and troubleshooting.
 
 ## Status and next objective
@@ -177,3 +177,40 @@ If added later, retain RAW/sidecar/Live Photo relationships, verify archived
 copies before editing, never invent capture dates for scanned prints, and keep
 quality screening optional with no automatic deletion. Verify external tool
 support on this Mac before promising automation or import capabilities.
+
+
+## Branch-only focus-review integration — October 12, 2026
+
+On `experiment/ranking-culling` the user authorized main-CLI integration of the
+selected experimental focus policy and reversible manual culling archives. This
+has not been merged/pushed. `process` handles one/multiple folders with embedded
+orientation, accepted similarity grouping and focus review before optional
+existing Polaroid TIFF edits. Scan/process-sheet include group/focus review before
+retouch by default, with `--no-focus-review` opt-out. Ordinary print splitting,
+general JPEG/HEIC edits, guessed upright rotation and RAW ingestion remain deferred.
+
+The selected policy preserves baseline Yes, Gaussian1, attention-only fallback,
+10% global cohort tail, global contrast with semantic scale confirmation and
+no-semantic objectness fallback. Failed landmark/patch overrides are excluded.
+Group sharper/softer highlights use a new conservative direct-pair focus heuristic,
+not a calibrated universal score or automatic deletion decision.
+
+The user expressly requested soft deletion. `review JOB_ID` runs an explicit
+loopback-only tokenized session for Delete/Undo selections and archive confirmation.
+`restore-archive JOB_ID` restores without overwriting. Verified ZIP plus retained
+original files are stored under scan-root/Blurry; companions and tracked derivatives
+move, scanner masters do not. Asset identities/dates/lineage are preserved in the
+existing schema-v1 database; no new tracking database or routine sidecars. These
+explicit user-requested archive moves are the exception to unchanged-source analysis.
+
+Verification: 97 automated tests passed, including no-clobber moves and ZIP
+verification failure before any source move. Strict Pyright
+reports zero errors. Native CLI ran both existing sample sets, matched the selected
+per-set flags exactly, retained all ten confirmed misses, and found one sharper/
+softer group pair. Final streaming/Gaussian1-only combined run: 92 originals,
+19 + 26 review flags, 82 seconds including grouping with cached helper. Originals
+were verified unchanged, and persistence/integrity checks used isolated SQLite.
+Archive/restore, failure rollback, collisions, companions, masters and HTTP session/
+origin protections were tested on synthetic files; no user photo was archived.
+Delete/Undo and report layout were inspected in a synthetic loopback browser page.
+Scanner hardware acquisition was not repeated or claimed newly validated.
