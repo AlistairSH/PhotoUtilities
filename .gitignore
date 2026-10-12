@@ -18,3 +18,17 @@ __pycache__/
 *.heic
 *.sqlite
 *.db
+
+# Archived photographs and RAW/media companions are never source artifacts.
+*.zip
+*.heif
+*.dng
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.raf
+*.rw2
+*.orf
+*.mov
+*.mp4

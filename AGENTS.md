@@ -24,12 +24,12 @@ changes and carry authorized work through implementation and verification.
 - Never alter Apple Photos library internals. Any future Photos integration must use supported local interfaces and explicit import actions.
 
 ## Established similarity workflow
-+- Related-photo grouping is accepted production functionality: `photo-utils similar` uses local Vision revision 2 distance <.45 OR strict SIFT. Preserve the tested rule unless the user asks to change it; hashes and Czkawka are not production signals.
-+- Analyze original scans/camera images before manual edits when available. Similarity never scans, retouches, moves, deletes, imports to Photos or transmits images. Results are candidates for manual review, with chaining, not identity or quality verdicts.
-+- Retain the clean image layout and one self-contained HTML report beside images. Persist routine scores/settings/groups against source assets in existing SQLite, with `--no-db` and no-write `--dry-run` options. Derivative history inherits source analysis rather than pretending edited pixels were reassessed.
-+- `scan` and `process-sheet` have opt-in `--find-similar`, after saving prints and before retouching. The four-Polaroid splitter remains the supported layout. `--kind prints` deliberately fails before acquisition/writes with `Print Splitting Not Implemented Yet`.
-+- Technical quality assessment, digital archival, RAW/Photos integration and other roadmap items remain deferred. Vision similarity is not a focus classifier; no automatic culling or generative reconstruction.
-+- Keep pure feasibility/benchmark artifacts on `experiment/apple-vision`; production modules, regression tests, documentation and the photo-toolkit skill belong on `main`. Do not push/merge without explicit authorization.
+- Related-photo grouping is accepted production functionality: `photo-utils similar` uses local Vision revision 2 distance <.45 OR strict SIFT. Preserve the tested rule unless the user asks to change it; hashes and Czkawka are not production signals.
+- Analyze original scans/camera images before manual edits when available. Similarity never scans, retouches, moves, deletes, imports to Photos or transmits images. Results are candidates for manual review, with chaining, not identity or quality verdicts.
+- Retain the clean image layout and one self-contained HTML report beside images. Persist routine scores/settings/groups against source assets in existing SQLite, with `--no-db` and no-write `--dry-run` options. Derivative history inherits source analysis rather than pretending edited pixels were reassessed.
+- The accepted main-branch `scan` and `process-sheet` have opt-in `--find-similar`, after saving prints and before retouching. On the current culling branch, grouping/focus review is enabled by default with `--no-focus-review` opt-out. The four-Polaroid splitter remains the supported layout. `--kind prints` deliberately fails before acquisition/writes with `Print Splitting Not Implemented Yet`.
+- General technical quality assessment, digital archival and RAW/Photos integration remain deferred. Branch-only manual focus review is implemented and accepted as described below. Vision similarity is not a focus classifier; no automatic culling or generative reconstruction.
+- Keep pure feasibility/benchmark artifacts on `experiment/apple-vision`; production modules, regression tests, documentation and the photo-toolkit skill belong on `main`. Do not push/merge without explicit authorization.
 
 ## Engineering approach
 - Extend the existing Python CLI and small modules. Reuse configuration, persistence, locks, logging, and tests; avoid unrelated refactoring or dependency changes.
@@ -61,7 +61,9 @@ work. Report relevant verification and remaining limitations concisely.
 ## Current experimental branch workflow
 
 The user explicitly authorized focus/culling CLI integration on
-`experiment/ranking-culling` only (not merge/push). On this branch, natural-language
+`experiment/ranking-culling` only. The user authorized committing and pushing the
+October 12 checkpoint to that same remote branch; do not change or merge main.
+Future pushes still require explicit authorization. On this branch, natural-language
 “process these folders” maps to `photo-utils process TARGET...`; “scan this page
 and process” maps to the supported Polaroid scan workflow, including grouping/focus
 before existing edits. Ordinary print splitting remains an explicit error. Read
@@ -72,6 +74,17 @@ are suggestions. Do not automatically archive flagged or softer images.
 The user expressly authorized manual reversible review archives. Only explicit
 Delete selections followed by archive confirmation may move selected images,
 companions and tracked derivatives to verified Blurry archives. Scanner masters
-remain protected. Retain original bytes, IDs/dates/lineage, record job states and
-recoverability, refuse changes/collisions, and never convert the soft archive into
-a permanent purge. Use the existing jobs.sqlite3 for routine metadata.
+remain protected. Retain original bytes in verified ZIP-only archives, preserve IDs/dates/lineage,
+record job states and recoverability, refuse changes/collisions, and never purge
+the archival ZIP. Use dated folder names, not GUID directory names. Remove loose
+duplicate copies only after verifying ZIP members and committing recovery metadata. Use the existing jobs.sqlite3 for routine metadata.
+
+
+The user accepted the 475-image four-folder workflow as successful. Unflagged
+images should have no explanatory focus comment; keep the yes/no status and
+relative group highlights. Explain positive review flags only. Treat no flag as
+unassessed in stored metadata, rather than certifying sharpness. Preserve subject
+boxes and manual archive controls. Ordinary batch prompts should produce the
+report and open an explicit local review session when archive controls are needed.
+Keep historical experimental scripts/tests on this branch; private photographs,
+reports, databases, caches and binaries remain outside Git.

@@ -15,7 +15,7 @@ from .retouch import RetouchError, RetouchOptions, retouch
 from .similarity import SimilarityError, find_similar
 from .batch import process_batch
 from .review_server import serve_review
-from .review_archive import restore_archive
+from .review_archive import restore_archive, compact_archive
 from .scanning import (
     MODES,
     RESOLUTIONS,
@@ -125,6 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--archive-root", type=Path, help="Default: PhotoScans/Blurry; must share sources filesystem")
     restore = commands.add_parser("restore-archive", help="Restore files moved by a review-archive job; keep verified ZIP")
     restore.add_argument("job_id")
+    compact = commands.add_parser("compact-archive", help="Verify an existing review archive and retain only its ZIP in a dated folder")
+    compact.add_argument("job_id")
 
     similar = commands.add_parser("similar", help="Find related photo groups with local Vision + SIFT")
     similar.add_argument("targets", nargs="+", type=Path, help="Image files or folders; folders do not recurse by default")
@@ -174,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     db_actions = db.add_subparsers(dest="action",required=True)
     db_check = db_actions.add_parser("check")
     db_check.add_argument("--checksums", action="store_true",help="Also verify image SHA-256 checksums")
-    for command in (batch,review,restore,process,similar,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
+    for command in (batch,review,restore,compact,process,similar,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
         command.add_argument("--state-dir",type=Path,help="Local SQLite job database directory (default: configured state directory)")
     return parser
 
@@ -418,6 +420,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             serve_review(args.job_id, archive_root=args.archive_root)
         elif args.command == "restore-archive":
             restore_archive(args.job_id)
+        elif args.command == "compact-archive":
+            result=compact_archive(args.job_id)
+            print("ZIP-only archive:",result["archive"])
+            if result["cleanup_errors"]:
+                raise SimilarityError("Some duplicate copies were retained: "+"; ".join(result["cleanup_errors"]))
         elif args.command == "retouch":
             retouch(
                 args.target,

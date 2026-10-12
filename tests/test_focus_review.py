@@ -11,6 +11,7 @@ import urllib.error
 import numpy as np
 from photo_utils import database
 from photo_utils.focus import decisions,relative_focus,measure
+from photo_utils.focus_report import render
 from photo_utils.focus_policy import screen
 from photo_utils.similarity_native import SimilarityError
 from photo_utils.review_archive import archive_selected,restore_archive
@@ -40,6 +41,7 @@ class FocusTests(unittest.TestCase):
     def test_single_scale_global_confirmed_by_semantic_regions(self):
         d=decisions([row('a',1024,global_flag=True),row('a',2048)])[0]
         self.assertFalse(d['baseline_review']);self.assertTrue(d['scale_confirmation_cleared']);self.assertFalse(d['review_suggestion'])
+        self.assertEqual(d['reason'],[])
 
     def test_regional_fallback_preserved_without_semantics(self):
         d=decisions([row('a',1024,semantic=False),row('a',2048,semantic=False)])[0]
@@ -66,6 +68,25 @@ class FocusTests(unittest.TestCase):
         self.assertIsNone(result['images'][2]['focus_comparison']['role'])
 
 
+class ReportTests(unittest.TestCase):
+    def test_unflagged_cached_reasons_hidden_and_group_highlight_retained(self):
+        images=[]
+        for i in range(2):
+            images.append({'path':f'/photos/{i}.jpg','width':100,'height':100,'thumbnail':'',
+                'detectors':{k:{'regions':[]} for k in ['faces','people','animals','objectness','attention']},
+                'focus_review':{'review_suggestion':bool(i),'reason':['Actual flagged explanation <detail>' if i else 'No review flag under this experimental rule; sharpness is not certified.']},
+                'focus_comparison':{'role':None if i else 'sharper'}})
+        result={'images':images,'job_id':'fixture','state_dir':'/state','archive_enabled':False,
+                'groups':[{'members':[0,1],'level':'likely'}],'unmatched':[]}
+        page=render(result,Path('/photos/review.html'),'2026-10-12')
+        self.assertNotIn('No review flag under this experimental rule',page)
+        quiet=page.split('<figure id="photo-0"')[1].split('</figure>')[0]
+        self.assertNotIn('<p class="note">',quiet)
+        self.assertIn('Focus review: No',quiet)
+        self.assertIn('Sharper focus candidate',quiet)
+        self.assertIn('Actual flagged explanation &lt;detail&gt;',page)
+
+
 class ArchiveTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name).resolve();self.state=self.root/'state';self.context=database.use_state(self.state);self.context.__enter__();self.addCleanup(self.context.__exit__,None,None,None)
@@ -85,7 +106,9 @@ class ArchiveTests(unittest.TestCase):
         with zipfile.ZipFile(r['archive']) as z:
             self.assertEqual(z.read('photos/0001-a.jpg'),b'original bytes')
         original=next(a for a in database.query_assets() if a['asset_id']==before)
-        self.assertEqual(original['status'],'archived');self.assertTrue(Path(original['path']).exists())
+        self.assertEqual(original['status'],'archived');self.assertFalse(Path(original['path']).exists())
+        self.assertTrue(Path(r['archive']).parent.name.startswith(database.now()[:10].replace('-','')+'-archive'))
+        self.assertEqual(list(Path(r['archive']).parent.iterdir()),[Path(r['archive'])])
         restore_archive(r['archive_job']);self.assertEqual(self.source.read_bytes(),b'original bytes');self.assertEqual(self.sidecar.read_bytes(),b'original notes');self.assertTrue(Path(r['archive']).exists())
         self.assertEqual(next(a for a in database.query_assets() if a['asset_id']==before)['path'],str(self.source))
         self.assertFalse(database.check_database(True)['changed_files'])
@@ -130,6 +153,43 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):move_no_replace(self.source,dest)
         self.assertEqual(dest.read_bytes(),b'user data')
         self.assertEqual(self.source.read_bytes(),b'original bytes')
+
+    def test_archive_date_collisions_and_preview_from_zip(self):
+        from photo_utils.review_archive import read_archived_asset
+        r=archive_selected(self.job,[0],archive_root=self.archive)
+        asset=next(a for a in database.query_assets() if a['filename']=='a.jpg')
+        self.assertEqual(read_archived_asset(json.loads(asset['metadata_json']),asset['sha256']),b'original bytes')
+        restore_archive(r['archive_job'])
+        again=archive_selected(self.job,[0],archive_root=self.archive)
+        self.assertTrue(Path(again['archive']).parent.name.endswith('-02'))
+        self.assertTrue(Path(r['archive']).exists())
+
+    def test_legacy_archive_compaction_preserves_restoration(self):
+        from photo_utils.review_archive import compact_archive
+        r=archive_selected(self.job,[0],archive_root=self.archive)
+        record=database.job_details(r['archive_job'])['job']['metadata']
+        folder=Path(r['archive']).parent;legacy=self.archive/('a'*32);folder.rename(legacy)
+        record['archive']=str(legacy/'deleted-photos.zip');originals=legacy/'originals';originals.mkdir()
+        for i,item in enumerate(record['files']):
+            old=originals/f'{i:04d}.original'
+            with zipfile.ZipFile(record['archive']) as z:old.write_bytes(z.read(item['member']))
+            item['archived']=str(old)
+        with database.transaction() as db:
+            database.save_job(db,r['archive_job'],'review-archive',record,folder)
+            db.execute('UPDATE scan_jobs SET output_path=? WHERE job_id=?',(str(legacy),r['archive_job']))
+        result=compact_archive(r['archive_job'])
+        self.assertFalse(legacy.exists());self.assertFalse(result['cleanup_errors'])
+        self.assertEqual(list(Path(result['archive']).parent.iterdir()),[Path(result['archive'])])
+        restore_archive(r['archive_job']);self.assertEqual(self.source.read_bytes(),b'original bytes')
+
+    def test_corrupt_zip_cannot_restore_or_discard_duplicates(self):
+        from photo_utils.review_archive import compact_archive
+        r=archive_selected(self.job,[0],archive_root=self.archive)
+        Path(r['archive']).write_bytes(b'invalid zip')
+        with self.assertRaises(SimilarityError):restore_archive(r['archive_job'])
+        with self.assertRaises(SimilarityError):compact_archive(r['archive_job'])
+        self.assertFalse(self.source.exists())
+        self.assertTrue(Path(r['archive']).exists())
 
     def test_restore_refuses_collision(self):
         r=archive_selected(self.job,[0],archive_root=self.archive);self.source.write_bytes(b'new user photo')

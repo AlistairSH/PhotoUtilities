@@ -5,7 +5,7 @@ sheet splitting, TIFF retouching, related-photo grouping, and SQLite processing 
 On `experiment/ranking-culling`, the CLI also provides experimental focus review,
 relative group focus highlights, and explicit reversible review archives. Normal
 analysis preserves sources; requested archives move verified copies out of active
-folders and retain a ZIP plus original files for recovery.
+folders and retain a verified ZIP for recovery.
 
 Future features: General digital/RAW archival ingestion, Apple Photos import, Photomator automation, Shortcuts, and watchers
 are not implemented.
@@ -23,8 +23,8 @@ are not implemented.
 
 ## Experimental branch: batch focus review and archiving
 
-This integration is on `experiment/ranking-culling` only; it has not been
-merged into `main`. It proposes manual review, never automatic rejection.
+This integration is on `experiment/ranking-culling` only; it remains unmerged into `main`. The user accepted the first full batch workflow
+and authorized pushing this checkpoint to the same experimental branch. It proposes manual review, never automatic rejection.
 
 ```sh
 # Scan a supported four-Polaroid page: split/rotate, group/focus, then existing edits.
@@ -86,6 +86,9 @@ heuristic is not calibrated; texture, grain and framing can affect it. Relative
 highlights do not change general focus-review flags. Reports contain the flags,
 explanations, detection boxes, and original-image links; numerical evidence and
 settings are persisted in the existing SQLite jobs/recipes for reproducibility.
+Unflagged photos have no explanatory focus comment; the yes/no status and group
+focus highlights remain. Positive review flags include their reason. Stored No
+results remain unassessed rather than certified sharp.
 
 A portable static report allows Delete/Undo selection, but cannot move files.
 `review JOB_ID` prints a temporary tokenized loopback URL; open it while the
@@ -96,20 +99,38 @@ arbitrary filesystem paths. Selections are manually chosen and confirmed; the
 focus flag never starts an archive automatically. Selections are not saved across
 page reloads. Archived status is recovered from SQLite.
 
-Archives default to the configured scan root's `Blurry/<archive-job-id>/`:
-`deleted-photos.zip` plus retained `originals/`. Contents are SHA-256 verified
-before any source moves, destinations refuse collisions, source changes abort,
-and move failures roll back where possible. Matching sidecars/RAW/media companions
-and tracked derivatives are included; parent scanner masters are protected.
-No original bytes are permanently removed. Asset identities, dates and lineage
-remain in SQLite, with updated archived locations/status and original paths.
-The ZIP index records original paths; no routine manifest sidecar or new database
-is introduced. Stored ZIP compression favors predictable speed; retained originals
-mean roughly two archive copies. `review --archive-root /path/on/same/filesystem`
-selects another destination. Source and archive must share a filesystem for the
-no-clobber move. Restore verifies retained originals and refuses occupied paths;
-the ZIP remains. Interrupted archive jobs have a stored plan and can be recovered
-with the same restore command; all published data is retained on failure.
+Archives default to the configured scan root's `Blurry/YYYYMMDD-archive/`;
+further batches that day use `YYYYMMDD-archive-02`, `-03`, and so on. Each completed
+folder contains only `deleted-photos.zip`. Every member is SHA-256 verified before
+sources leave their active folders. Temporary staging permits rollback until the
+ZIP and asset metadata are committed; verified duplicate loose copies are then
+removed. Cleanup failures retain those copies and report the need for attention.
+Matching sidecars/RAW/media companions and tracked derivatives are included;
+parent scanner masters are protected. Archive requests are always explicit.
+
+Original bytes remain recoverable from the ZIP. Asset IDs, dates and lineage
+remain in SQLite with historical source paths plus ZIP/member metadata. Archived
+original links read from the ZIP, and database checksum checks understand archived
+members. Restore extracts into verified temporary files before publishing to the
+original locations, preserves recorded permissions/mtime, and refuses changed or
+occupied destinations. The ZIP remains after restore. Routine metadata stays in
+the existing database; the ZIP's internal index records original paths. No separate
+tracking database or routine filesystem manifest is introduced. Stored ZIP
+compression favors predictable speed for already-compressed photos.
+
+`review --archive-root /path/on/same/filesystem` selects another destination;
+source and staging must share a filesystem for no-clobber moves. To convert an
+older archive with retained individual copies, use:
+
+```sh
+.venv/bin/photo-utils compact-archive ARCHIVE_JOB_ID
+```
+
+Compaction verifies all ZIP members and duplicate loose copies before removing
+them, converts GUID folder names to dated names, and updates asset/job metadata.
+Unexpected or changed files are retained. Interrupted archive jobs have stored
+recovery plans; `restore-archive` restores published ZIP contents without needing
+loose copies. Failed work retains its recovery data rather than silently purging it.
 
 Streaming native pixels avoids a multi-gigabyte temporary batch export. Only
 Gaussian1 is measured during routine focus processing; unrelated experimental
@@ -117,7 +138,13 @@ filters/patches are omitted. Similarity pair comparisons still grow quadraticall
 On this Mac, a cached-helper 92-image combined run took about 82 seconds, retained
 all ten reviewed focus misses and produced 45 review flags. This is development-set
 verification, not independently validated accuracy or a guarantee for every batch.
-Physical acquisition of the latest scanner wrapper remains separately unverified.
+The first larger four-folder run processed 475 images in about eight minutes,
+with 55 groups, 322 ungrouped images and 228 review suggestions. The user accepted
+the workflow after reviewing its report. Historical experiment scripts/tests are
+retained in `experiments/ranking_culling`; they are development records, not extra
+filters run by the CLI. Photographs, generated reports, databases and compiled
+helpers are not included in Git. Physical acquisition of the latest scanner
+wrapper remains separately unverified.
 
 ## Installation
 

@@ -4,18 +4,21 @@ import hmac
 import json
 import mimetypes
 import secrets
+import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs,urlparse
 from . import database
-from .review_archive import archive_selected,checked,review_job
+from .review_archive import archive_selected,checked,review_job,read_archived_asset
 from .similarity_native import SimilarityError
 
 
 def make_server(job_id: str, *, archive_root: Optional[Path] = None) -> tuple[HTTPServer,str]:
     payload=review_job(job_id);report=Path(payload['report'])
     checked(report,payload['report_sha256']);document=report.read_bytes();token=secrets.token_urlsafe(32)
+    # Capture the job database explicitly: request-handler threads do not inherit
+    # ContextVar state, and review must never fall back to a different database.
     state=database.state_dir()
     class Handler(BaseHTTPRequestHandler):
         def handle_one_request(self) -> None:
@@ -24,6 +27,8 @@ def make_server(job_id: str, *, archive_root: Optional[Path] = None) -> tuple[HT
         def host_ok(self) -> bool:
             return self.headers.get('Host')==f'127.0.0.1:{self.server.server_port}'  # type: ignore[attr-defined]
         def authorized(self) -> bool:
+            # Header tokens protect API calls; query tokens support opening an
+            # allowlisted original via ordinary browser navigation.
             supplied=self.headers.get('Authorization','').removeprefix('Bearer ')
             if not supplied:supplied=parse_qs(urlparse(self.path).query).get('token',[''])[0]
             return self.host_ok() and hmac.compare_digest(supplied,token)
@@ -48,10 +53,15 @@ def make_server(job_id: str, *, archive_root: Optional[Path] = None) -> tuple[HT
                     if not 0<=i<len(payload['images']):raise ValueError('Invalid image index')
                     img=payload['images'][i]
                     with database.transaction() as db:
-                        row=db.execute('SELECT path FROM assets WHERE asset_id=?',(img['asset_id'],)).fetchone()
-                    source=Path(row['path'] if row else img['path']);checked(source,img['sha256'])
-                    self.reply(200,source.read_bytes(),mimetypes.guess_type(source.name)[0] or 'application/octet-stream')
-                except (ValueError,OSError,SimilarityError) as exc:self.json_reply(404,{'error':str(exc)})
+                        row=db.execute('SELECT path,status,metadata_json FROM assets WHERE asset_id=?',(img['asset_id'],)).fetchone()
+                    source=Path(row['path'] if row else img['path'])
+                    metadata: dict[str, Any]=json.loads(row['metadata_json']) if row else {}
+                    if row and row['status']=='archived' and metadata.get('archive_member'):
+                        data=read_archived_asset(metadata,img['sha256'])
+                    else:
+                        checked(source,img['sha256']);data=source.read_bytes()
+                    self.reply(200,data,mimetypes.guess_type(source.name)[0] or 'application/octet-stream')
+                except (ValueError,KeyError,OSError,SimilarityError,zipfile.BadZipFile) as exc:self.json_reply(404,{'error':str(exc)})
                 return
             self.json_reply(404,{'error':'Unknown endpoint'})
         def do_POST(self) -> None:

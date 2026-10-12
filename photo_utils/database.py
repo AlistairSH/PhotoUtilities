@@ -10,6 +10,7 @@ import json
 import os
 import sqlite3
 import uuid
+import zipfile
 from typing import Any, Callable, Generator, Optional, TYPE_CHECKING, TypeVar, overload, Literal, Union, cast
 import tifffile
 
@@ -521,8 +522,19 @@ def check_database(verify_checksums: bool = False) -> Metadata:
         foreign_keys = [tuple(row) for row in db.execute('PRAGMA foreign_key_check')]
         missing: list[Metadata] = []
         changed: list[Metadata] = []
-        for row in db.execute('SELECT asset_id,path,sha256,status,job_id FROM assets'):
-            if not Path(row['path']).is_file():
+        for row in db.execute('SELECT asset_id,path,sha256,status,job_id,metadata_json FROM assets'):
+            metadata=json.loads(row['metadata_json'])
+            if row['status']=='archived' and metadata.get('archive_member'):
+                # ZIP-only assets retain their historical source path; verify
+                # their actual archived location rather than calling it missing.
+                try:
+                    with zipfile.ZipFile(metadata['archive']) as archive:
+                        archive.getinfo(metadata['archive_member'])
+                    if verify_checksums and row['sha256']:
+                        from .review_archive import zip_digest
+                        if zip_digest(Path(metadata['archive']),metadata['archive_member'])!=row['sha256']:changed.append(dict(row))
+                except (OSError,KeyError,zipfile.BadZipFile):missing.append(dict(row))
+            elif not Path(row['path']).is_file():
                 missing.append(dict(row))
             elif verify_checksums and row['sha256'] and digest(row['path']) != row['sha256']:
                 changed.append(dict(row))

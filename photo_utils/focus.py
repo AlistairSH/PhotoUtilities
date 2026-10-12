@@ -63,11 +63,14 @@ def decisions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result.append({**d,'baseline_review':d['review_suggestion'],'global_contrast_review':global_flag,
             'regional_fallback_review':fallback,'scale_confirmation_cleared':global_flag and not confirmed,
             'review_suggestion':bool(final),'category':'manual_review' if final else 'unassessed',
-            'reason':reasons or ['No review flag under this experimental rule; sharpness is not certified.']})
+            # Silence unflagged results; category remains unassessed, not a
+            # certified sharpness verdict. Only positive flags need explanation.
+            'reason':reasons})
     return result
 
 
 def relative_focus(result: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    """Highlight direct-pair differences without changing general review flags."""
     paired={p:{r['max_dimension']:r for r in rows if r['path']==p} for p in {r['path'] for r in rows}}
     def evidence(index: int, scale: int) -> tuple[str,list[dict[str, Any]]]:
         row=paired[result['images'][index]['path']][scale]
@@ -85,6 +88,8 @@ def relative_focus(result: dict[str, Any], rows: list[dict[str, Any]]) -> None:
                 for scale in (1024,2048):
                     ka,ra=evidence(better,scale);kb,rb=evidence(worse,scale)
                     if ka!=kb or len(ra)!=len(rb):convincing=False;break
+                    # Use the weakest usable subject so one sharp face cannot
+                    # conceal a softer co-primary subject in this comparison.
                     areas_a=sorted(r['box'][2]*r['box'][3] for r in ra);areas_b=sorted(r['box'][2]*r['box'][3] for r in rb)
                     if any(min(x,y)<=0 or max(x,y)>2*min(x,y) for x,y in zip(areas_a,areas_b)):convincing=False;break
                     for metric in ('laplacian_variance','tenengrad'):

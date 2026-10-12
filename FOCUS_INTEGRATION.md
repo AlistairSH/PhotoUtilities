@@ -1,6 +1,6 @@
 # Branch-only focus review integration
 
-October 12, 2026 · `experiment/ranking-culling` · no merge/push.
+October 12, 2026 · `experiment/ranking-culling` · unmerged into main; checkpoint push authorized.
 
 ## Changes
 
@@ -26,8 +26,8 @@ relative group highlights, original links, and Delete/Undo selection. An explici
 by image index and rejects foreign host/origin/session requests. A static report
 cannot move files. Archive confirmation creates and SHA-256 verifies a stored ZIP
 before no-clobber moves. Sidecars/RAW/media companions and tracked descendants are
-included, masters protected. ZIP and retained original bytes live under scan-root
-Blurry. Restore refuses collisions; failures retain evidence and recorded recovery
+included, masters protected. ZIP-only archives live in dated folders under scan-root
+Blurry; original bytes can be restored directly from ZIP members. Restore refuses collisions; failures retain evidence and recorded recovery
 plans in the existing schema-v1 database. No data is permanently purged.
 
 Native pixels stream with bounded per-row memory instead of a multi-gigabyte
@@ -66,3 +66,27 @@ continues in the existing SQLite database.
 Latest combined review artifact (outside Git):
 `../RankingExperiments/CLI-focus-integration-trial-01/review.html`.
 Existing source images, historical reports and experimental scripts are preserved.
+
+
+## Accepted workflow and storage refinement
+
+The user accepted the 475-image four-folder run (55 groups, 322 ungrouped,
+228 focus-review flags, about eight minutes). Unflagged images now have no
+explanatory focus comment; flags, group highlights and positive reasons remain.
+The historical numerical engines/tests are retained in experiments/ranking_culling
+for reproducibility without adding any photo/report/database artifacts to Git.
+
+Archive v2 uses YYYYMMDD-archive folders and collision suffixes, retains only the
+verified ZIP, and restores or serves archived originals directly from members.
+Temporary staging supports rollback; cleanup never removes an unverified copy.
+compact-archive converts prior archives and updates the existing schema-v1 metadata.
+The user authorized local commit and remote push on experiment/ranking-culling only.
+
+
+Final checkpoint verification: 101 core tests plus 45 experimental tests passed;
+strict Pyright reports zero errors. The existing live archive's 22 members were
+verified, duplicate loose files removed, and its GUID folder replaced with
+Blurry/20261012-archive. Archive asset IDs/dates/lineage match the pre-conversion
+SQLite backup. The 475-image report was re-rendered, retaining 228 flags without
+rescanning or recategorizing images. ZIP-only archived previews and restore are
+covered by synthetic tests. No private image, ZIP, report or database is published.

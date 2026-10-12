@@ -9,6 +9,13 @@ See [README.md](./README.md) for installation, commands, and troubleshooting.
 
 **Phase 2: related-photo grouping is implemented and accepted.** The existing CLI uses local Vision + SIFT, SQLite source-asset relationships, a lightweight HTML report and the photo-toolkit skill. Technical quality assessment and further editing automation remain deferred. No generative image reconstruction.
 
+**Phase 3: manual focus review is usable on experiment/ranking-culling.** The user
+accepted a 475-image batch workflow with similar-group focus highlights and
+explicit reversible culling. Archives now retain only verified ZIPs in dated
+folders, and unflagged images have no explanatory note. This remains branch-only;
+general digital edits and ordinary-print splitting are still deferred.
+
+
 ## Current application
 
 PhotoUtilities is an offline Python CLI for Canon LiDE 400 scanner sheets and
@@ -182,8 +189,8 @@ support on this Mac before promising automation or import capabilities.
 ## Branch-only focus-review integration — October 12, 2026
 
 On `experiment/ranking-culling` the user authorized main-CLI integration of the
-selected experimental focus policy and reversible manual culling archives. This
-has not been merged/pushed. `process` handles one/multiple folders with embedded
+selected experimental focus policy and reversible manual culling archives. The user authorized this checkpoint to be committed and pushed on the same
+experimental branch; it remains unmerged into main. `process` handles one/multiple folders with embedded
 orientation, accepted similarity grouping and focus review before optional
 existing Polaroid TIFF edits. Scan/process-sheet include group/focus review before
 retouch by default, with `--no-focus-review` opt-out. Ordinary print splitting,
@@ -197,8 +204,8 @@ not a calibrated universal score or automatic deletion decision.
 
 The user expressly requested soft deletion. `review JOB_ID` runs an explicit
 loopback-only tokenized session for Delete/Undo selections and archive confirmation.
-`restore-archive JOB_ID` restores without overwriting. Verified ZIP plus retained
-original files are stored under scan-root/Blurry; companions and tracked derivatives
+`restore-archive JOB_ID` restores without overwriting. Verified ZIP-only archives in dated
+folders are stored under scan-root/Blurry; companions and tracked derivatives
 move, scanner masters do not. Asset identities/dates/lineage are preserved in the
 existing schema-v1 database; no new tracking database or routine sidecars. These
 explicit user-requested archive moves are the exception to unchanged-source analysis.
@@ -211,6 +218,48 @@ softer group pair. Final streaming/Gaussian1-only combined run: 92 originals,
 19 + 26 review flags, 82 seconds including grouping with cached helper. Originals
 were verified unchanged, and persistence/integrity checks used isolated SQLite.
 Archive/restore, failure rollback, collisions, companions, masters and HTTP session/
-origin protections were tested on synthetic files; no user photo was archived.
+origin protections were tested on synthetic files; no user photo was archived by those tests.
 Delete/Undo and report layout were inspected in a synthetic loopback browser page.
 Scanner hardware acquisition was not repeated or claimed newly validated.
+
+
+## Accepted batch workflow checkpoint — October 12, 2026
+
+The user reviewed the combined run on 08477, OldScans01, Photos20260618 and
+17268 08082025 2 and called it successful. It processed 475 originals recursively
+in about eight minutes: 55 groups (39 pairs, four triples, 12 groups of 4–9),
+322 ungrouped images, 228 focus-review flags, seven sharper and five softer group
+highlights. Source checksums were preserved; no image was automatically culled.
+An explicit loopback review session provided Delete/Undo and confirmed archival.
+
+The requested UI refinement removes explanatory text from unflagged images.
+Their yes/no status and relative group highlights remain visible; stored category
+continues to mean unassessed. Positive flags retain reasons and bounding boxes.
+Historical saved jobs can be re-rendered without reanalyzing photos. Diagnostic
+code/tests and findings are retained on this branch, while image/report/database
+artifacts remain local and untracked. CLI focus policy and archive behavior remain
+unchanged. This is a usable manual-review workflow, not a universally validated
+focus classifier. General digital edits and ordinary-print splitting remain deferred.
+
+The user explicitly authorized a local commit and remote push of this checkpoint
+on experiment/ranking-culling only; no merge into main, PR or photo upload.
+
+
+The archive storage refinement retains only the verified ZIP in human-readable
+YYYYMMDD-archive folders (numbered suffixes for same-day collisions). Temporary
+loose staging is removed after verification and metadata commit, with recovery
+copies retained on failure. Restore and archived preview links read ZIP members;
+asset IDs, historical paths, checksums, dates and lineage remain in SQLite. The
+compact-archive command safely converts older ZIP-plus-loose-file archives and
+updates locations. No schema change is needed. The user's existing archive is
+converted only after ZIP/member and duplicate-file checksums match.
+
+
+Current storage verification: the user's live 22-file archive was checksum-verified
+and converted to Blurry/20261012-archive/deleted-photos.zip, with no individual
+copies retained. The old GUID folder was removed. A pre-conversion SQLite backup
+was saved; asset IDs, dates and parent relationships were verified unchanged.
+The accepted 475-image report was re-rendered without rescanning and preserves
+all 228 review flags. Core tests: 101 passed; experimental tests: 45 passed;
+strict Pyright: zero errors. Private ZIPs, photo data and metadata backups remain
+outside Git. The updated review session uses ZIP-backed archived previews.
