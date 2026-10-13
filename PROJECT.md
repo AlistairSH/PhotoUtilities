@@ -263,3 +263,62 @@ The accepted 475-image report was re-rendered without rescanning and preserves
 all 228 review flags. Core tests: 101 passed; experimental tests: 45 passed;
 strict Pyright: zero errors. Private ZIPs, photo data and metadata backups remain
 outside Git. The updated review session uses ZIP-backed archived previews.
+
+## Isolated aesthetics trial — October 12, 2026
+
+The user authorized a native Apple Vision aesthetics experiment using the new
+BestPhotoSamples folder first. Standalone implementation and instructions live
+in `experiments/ranking_culling/aesthetics/`. It uses original-file requests,
+raw native overallScore/isUtility, accepted grouping/focus evidence, conservative
+direct comparisons and blind preference export. All images/results/reports stay
+outside Git. No application behavior or schema changed. Human agreement and
+production integration remain pending; scoring does not authorize culling.
+
+## Aesthetics human review decision — October 12, 2026
+
+After the initial, expanded-set and reduced-pair human reviews, the user accepts
+Apple aesthetic scoring as useful comparison context, explicitly not a true
+winner or best-photo verdict. Personal preferences can prioritize expression,
+mood and intent over a technically preferable image. Preserve human choice,
+side-by-side comparison and separate focus advice. Do not infer component-level
+model explanations from the overall score. This decision does not authorize CLI
+integration, winner badges, automated culling, score weighting or threshold tuning.
+Private evaluation results remain outside Git.
+
+## Authorized alternative aesthetic model trial
+
+The user authorized starting Christoph Schuhmann's CLIP-based predictor on the
+existing samples, with isolated local runtime/model downloads and advisory
+comparisons against human choices and Apple. Implementation remains under the
+standalone aesthetics experiment; no canonical database or application CLI
+changes. A separate Python 3.12 environment preserves the production Python 3.9
+venv. Originals remain read-only and inference runs locally. The next proposed
+rsinema phase could overlay its seven component scores for human/Apple/Schuhmann
+picked images on radar charts, with shared axes and deduplicated picks. No
+rsinema components or charts have been invented or implemented in this phase.
+
+## rsinema test and proposed advisory review design
+
+The user authorized testing rsinema's seven predicted components on the current
+sample set before deciding whether they add useful context. Runtime/model data
+remain outside Git, images are read-only, and existing human/Apple/Schuhmann
+results are reused. The diagnostic report may compare the selected images on
+optional shared-axis radar charts. Production integration remains deferred.
+The user-proposed future design orders group images by Apple score, highlights
+the Schuhmann top, allows a manual human favorite, and optionally charts rsinema
+components for those 2–3 distinct images. No combined true-winner score or
+automatic culling is authorized by this experiment.
+
+## Foundation Models triage plan — October 12, 2026
+
+The revised direction assesses photographic interest for both grouped and solo
+images using common criteria, with group context as a separate comparison.
+Multiple interesting images, maybes, ties and possible technical problems are
+allowed without quotas. Interest and problem warnings can coexist; unmatched
+membership and lower relative preference do not justify culling.
+
+This is planning only pending the laptop OS upgrade. The experiment, capability
+verification, pilot evaluation and deferred metadata investigation are described
+in [FOUNDATION_MODELS_PLAN.md](experiments/ranking_culling/FOUNDATION_MODELS_PLAN.md).
+No Foundation Models implementation or availability claim is made. Production
+integration and metadata writes remain deferred.

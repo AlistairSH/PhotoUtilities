@@ -443,3 +443,10 @@ subjects and may ignore a small co-primary face. All selected regions must show
 sharp support at both input sizes. Rectangular boxes can contain sharp
 background, and resizing may hide blur: evaluate retained known misses before
 adopting any override. Sources are verified before/after; no database changes.
+
+## Apple aesthetics experiment
+
+The next standalone experiment is [aesthetics/README.md](aesthetics/README.md).
+It compares native Apple aesthetic ranking, unchanged direct-pair focus
+eligibility, and advisory focus, with blind human selection/export. It remains
+isolated from CLI commands, focus policies, archives and canonical SQLite.
