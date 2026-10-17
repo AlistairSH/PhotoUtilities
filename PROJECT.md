@@ -502,3 +502,29 @@ group memberships and underlying measurements are checked against the prior
 report. No solo qualifies as Top Pick. The previous report remains intact.
 Six synthetic tier tests pass; the combined report test selection passes 14 tests.
 Production behavior, human labels, archives and original photographs are unchanged.
+
+## RestorationLab preservation — October 17, 2026
+
+The user authorized committing RestorationLab on experiment/ranking-culling as a
+related but separate tool. It is effectively complete and worth preserving for
+occasional future rolls of old/unprocessed film. Source is under RestorationLab/;
+see [the separate README](RestorationLab/README.md). It is not integrated into the
+main utility's CLI, menu, scan/folder pipeline or installation dependencies.
+
+The selected finish is combined moderate/regional colour correction, SCUNet
+real-PSNR blended 75% with 25% colour input, then gentle luminance sharpening.
+Active runners accept explicit workspace/data paths and reuse the existing isolated
+Python 3.12 environment. Historical calculation and maintenance scripts are retained
+as provenance, not routine runnable entry points. The upstream Apache-2.0 licence
+and architecture are retained.
+
+Private real inputs, restoration manifests/audits, photos, reference images, model
+weights and the runtime remain outside Git in sibling ../RestorationLab, with
+outputs in ../Restored. Its standalone manifests remain separate from jobs.sqlite3.
+No private data or production database is moved by this preservation work.
+
+Verification: help/syntax and existing model-load/finite CPU inference checks passed;
+a synthetic collection audit and changed-source refusal passed. The historical
+collection audit currently cannot finish because a recorded OldScans01 source path
+is missing. No private manifest was rewritten and no photo regenerated. This commit
+authorization does not authorize a push or merge.

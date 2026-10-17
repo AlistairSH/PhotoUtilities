@@ -511,3 +511,17 @@ See [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md) for the database
 backup location and implementation checks.
 See [PROJECT.md](./PROJECT.md) for confirmed decisions and deferred requirements,
 and [AGENTS.md](./AGENTS.md) for development instructions.
+
+## Related separate tool: RestorationLab
+
+[RestorationLab](RestorationLab/README.md) is an effectively complete, standalone
+film-restoration workflow worth retaining for occasional future rolls of old or
+unprocessed film. Its source, selected colour/SCUNet-blend/sharpening recipe,
+dependency snapshot, historical scripts and upstream architecture/licence are
+preserved under RestorationLab/. It is not a photo-utils command, menu option,
+normal pipeline stage or installation dependency.
+
+The existing private runtime, weights, actual input lists, manifests, audits and
+reference photographs remain outside Git in sibling ../RestorationLab; restored
+images remain in ../Restored. Use the separate tool's README for explicit paths,
+read-only checks and intentional batch processing. Original photos are retained.

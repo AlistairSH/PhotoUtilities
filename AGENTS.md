@@ -88,3 +88,14 @@ boxes and manual archive controls. Ordinary batch prompts should produce the
 report and open an explicit local review session when archive controls are needed.
 Keep historical experimental scripts/tests on this branch; private photographs,
 reports, databases, caches and binaries remain outside Git.
+
+## Related standalone RestorationLab
+
+RestorationLab/ now preserves the effectively complete film-restoration tool's
+source and reproducibility instructions. The user authorized committing this
+addition on experiment/ranking-culling, not a push/merge or CLI integration. Keep
+it separate from normal CLI/menu/pipeline and installation dependencies. Private
+weights, the isolated environment, real inputs/manifests/audits and reference images
+stay outside Git in sibling ../RestorationLab; outputs stay in ../Restored. Its
+standalone manifests are not routine main-utility metadata. Never rerun historical
+cleanup snapshots as routine commands or substitute moved sample photos silently.

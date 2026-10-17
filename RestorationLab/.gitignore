@@ -1,0 +1,15 @@
+# Local restoration data/runtime; never commit models or photographs.
+.venv/
+weights/
+references/
+__pycache__/
+*.pyc
+*.pth
+*.pt
+*.safetensors
+*.onnx
+*.log
+*.json
+index.html
+review.html
+!inputs.example.json
