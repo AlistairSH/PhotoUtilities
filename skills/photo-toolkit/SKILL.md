@@ -25,10 +25,12 @@ Route the request:
 - **Process an existing Polaroid sheet:** `process-sheet "/path/to/master.tif"
   --kind polaroids --find-similar`. Add `--retouch none` when splitting and
   grouping without edits is requested.
-- **Scan/split ordinary prints:** `scan --kind prints` or `process-sheet
-  "/path/to/sheet.tif" --kind prints` deliberately errors with
-  `Print Splitting Not Implemented Yet` before scanning or writing files.
-  Explain this limit; do not silently process ordinary prints as Polaroids.
+- **Scan/split ordinary prints:** on the integrated ranking-culling branch use
+  `scan --kind prints` or `process-sheet SOURCE --kind prints`. This separates
+  rectangular prints against a contrasting background, auto-rotates where clear,
+  and generates three-tier review. Ordinary prints cannot use Polaroid edits.
+- **Process photo folders:** `process TARGET...`, optionally `--recursive` and
+  `--open-review`. This is the normal three-tier workflow. Preserve original bytes.
 
 Similarity uses the accepted Vision distance <.45 OR strict SIFT rule. Do not
 raise cutoffs, introduce hashes, or declare identity/accuracy from scores alone.
@@ -49,3 +51,15 @@ outside an agent sandbox. Treat decoding/helper failures as failed analysis,
 not unmatched images. Report the actual failure and stop dependent processing;
 never silently omit failed inputs. A scan request authorizes acquisition;
 physical validation of the latest wrapper remains a separate check.
+
+## Current branch integration (October 17)
+
+On experiment/ranking-culling, use `process TARGET...` for folders and `scan` or
+`process-sheet SOURCE` for sheets. These generate three-tier review and conservative
+visual quarter-turns by default. `--kind prints` now splits separated ordinary
+rectangular prints; it is no longer a placeholder. `--retouch none` skips edits
+but still splits; `scan --capture-only` saves an unsplit master. Polaroid editing
+remains the sole edit profile. `--open-review` starts explicit local cull controls.
+Possible Cull is advisory and never an archive selection. Preserve originals,
+verified ZIP recovery and SQLite lineage. Use PhotoSamples for future validation.
+RestorationLab is separate and must not be routed into these ordinary workflows.

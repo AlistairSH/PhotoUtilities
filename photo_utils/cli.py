@@ -78,16 +78,17 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--retouch",
         choices=("polaroid", "none"),
-        default="polaroid",
-        help="Process as a Polaroid (default) or leave the scanned sheet unsplit",
+        default=None,
+        help="Optional auto-edit: Polaroids default to polaroid; ordinary prints default to none",
     )
     scan.add_argument("--kind", choices=("polaroids", "prints"), default="polaroids",
-                      help="Sheet type; ordinary print splitting is not implemented yet")
+                      help="Sheet type: four bordered Polaroids or separated ordinary prints")
+    scan.add_argument("--capture-only",action="store_true",help="Save the untouched sheet without splitting or review")
     scan.add_argument("--find-similar", action="store_true", help="Group saved prints before retouching; write a local HTML report")
 
     process = commands.add_parser(
         "process-sheet",
-        help="Split a Polaroid scanner TIFF, then apply the polaroid retouch profile",
+        help="Split a scanner sheet, auto-rotate prints and generate three-tier review before optional Polaroid edits",
     )
     process.add_argument("source", type=Path, help="Scanner-sheet TIFF to process")
     process.add_argument(
@@ -103,17 +104,17 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument(
         "--retouch",
         choices=("polaroid", "none"),
-        default="polaroid",
-        help="Retouch extracted prints using the polaroid profile (default: polaroid)",
+        default=None,
+        help="Optional auto-edit: Polaroids default to polaroid; ordinary prints default to none",
     )
     process.add_argument("--kind", choices=("polaroids", "prints"), default="polaroids",
-                         help="Sheet type; ordinary print splitting is not implemented yet")
+                         help="Sheet type: four bordered Polaroids or separated ordinary prints")
     process.add_argument("--find-similar", action="store_true", help="Group saved prints before retouching; write a local HTML report")
 
     scan.add_argument("--no-focus-review", dest="focus_review", action="store_false", help="Skip experimental grouping/focus review")
     process.add_argument("--no-focus-review", dest="focus_review", action="store_false", help="Skip experimental grouping/focus review")
 
-    batch = commands.add_parser("process", help="Process image folders: orientation-aware grouping and focus review before optional TIFF edits")
+    batch = commands.add_parser("process", help="Process image folders: visual quarter-turns, grouping and three-tier review before optional Polaroid edits")
     batch.add_argument("targets", nargs="+", type=Path)
     batch.add_argument("--recursive", action="store_true")
     batch.add_argument("--report", type=Path)
@@ -130,6 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     similar = commands.add_parser("similar", help="Find related photo groups with local Vision + SIFT")
     similar.add_argument("targets", nargs="+", type=Path, help="Image files or folders; folders do not recurse by default")
+    similar.add_argument("--tier-review",action="store_true",help="Generate three-tier selection review")
     similar.add_argument("--focus-review", action="store_true", help="Include experimental focus suggestions and relative group highlights")
     similar.add_argument("--recursive", action="store_true", help="Include images in subfolders")
     similar.add_argument("--report", type=Path, help="New HTML file; default: similarity.html beside the images, versioned on reruns")
@@ -178,6 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
     db_check.add_argument("--checksums", action="store_true",help="Also verify image SHA-256 checksums")
     for command in (batch,review,restore,compact,process,similar,retouch_command,jobs,assets,job_show,job_export,recipe_show,history,db_check):
         command.add_argument("--state-dir",type=Path,help="Local SQLite job database directory (default: configured state directory)")
+    for command in (scan,process,batch):
+        command.add_argument('--no-tier-review',dest='tier_review',action='store_false',help='Use the older focus-only report')
+        command.add_argument('--no-auto-rotate',dest='auto_rotate',action='store_false',help='Use embedded orientation only')
+        command.add_argument('--open-review',action='store_true',help='Open a local interactive review session after processing')
     return parser
 
 
@@ -253,101 +259,68 @@ def process_and_retouch(
     profile: str = "polaroid",
     find_similar_groups: bool = False,
     focus_review: bool = False,
-) -> None:
-    outputs = process_sheet(source, output_dir=output_dir, dry_run=dry_run)
+    tier_review: bool = True,
+    auto_rotate: bool = True,
+    kind: str = 'polaroids',
+) -> Optional[Path]:
+    if kind == 'prints' and profile != 'none': raise ProcessingError('Auto-edit is implemented only for Polaroids; use --retouch none.')
+    outputs = process_sheet(source, output_dir=output_dir, dry_run=dry_run, kind=kind)
+    review_report: Optional[Path] = None
+    oriented_sources: dict[str,Path] = {}
     if find_similar_groups or focus_review:
         if dry_run:
-            print("After splitting: group saved prints and flag focus for review before retouching." if focus_review else "After splitting: find similar groups in the saved prints, before retouching.")
+            print("After splitting: auto-rotate quarter-turns, group saved prints and generate three-tier review before optional retouching." if focus_review and tier_review else "After splitting: group saved prints and flag focus for review before retouching." if focus_review else "After splitting: find similar groups in the saved prints, before retouching.")
         elif outputs:
-            find_similar(outputs, focus=True) if focus_review else find_similar([outputs[0].parent])
+            review_report = find_similar(outputs, focus=True, tiers=tier_review, auto_rotate=auto_rotate, oriented_sources=oriented_sources) if focus_review else find_similar([outputs[0].parent])
     if not outputs or profile == "none":
-        return
-    if identity(outputs[0]):
+        return review_report
+    if identity(outputs[0]) or oriented_sources:
         for output in outputs:
-            retouch(output, options=RetouchOptions(profile=profile))
+            retouch(oriented_sources.get(str(output),output), options=RetouchOptions(profile=profile))
     else:
         retouch(outputs[0].parent, options=RetouchOptions(profile=profile))
+    return review_report
+
+
+def open_report_review(report: Optional[Path]) -> None:
+    if report is None: return
+    with database.transaction() as db:
+        row = db.execute("SELECT job_id FROM scan_jobs WHERE output_path=? AND processing_status='completed' ORDER BY started_at DESC LIMIT 1",(str(report),)).fetchone()
+    if row is None: raise SimilarityError('No completed review job found for this report.')
+    serve_review(row['job_id'])
 
 
 def run_interactive_menu() -> int:
-    print("\nPhoto Utilities")
-    print("  D) Doctor - check scanner availability")
-    print("  S) Scan   - acquire and optionally process a sheet")
-    print("  R) Retouch a TIFF or folder")
-    print("  G) Find related photo groups")
-    print("  H) History & Database")
-    print("  Q) Quit")
-    choice = prompt_choice("Select an action", "DSRGHQ")
-    if choice == "q":
-        return 0
-    if choice == "d":
-        doctor()
-        return 0
-
-    if choice == "h":
-        history_cli.menu()
-        return 0
-    if choice == "g":
-        target = Path(input("Image folder: ").strip()).expanduser()
-        recursive = prompt_choice("Include subfolders?", "YN", default="N") == "y"
-        dry_run = prompt_choice("Dry run?", "YN", default="N") == "y"
-        find_similar([target], recursive=recursive, dry_run=dry_run)
-        return 0
-    if choice == "r":
-        target = Path(input("TIFF or folder: ").strip()).expanduser()
-        dry_run = prompt_choice("Dry run?", "YN",default="N") == "y"
-        retouch(target,dry_run=dry_run)
-        return 0
-
-    print("\nScan")
-    print("  S) Scan a new sheet")
-    print("  P) Process an existing Polaroid sheet (then retouch the prints)")
-    print("  T) Ordinary print page (not implemented yet)")
-    print("  Q) Quit")
-    scan_choice = prompt_choice("Select an action", "SPTQ", default="S")
-    if scan_choice == "q":
-        return 0
-    if scan_choice == "t":
-        raise ProcessingError("Print Splitting Not Implemented Yet")
-
-    root = default_root()
-    if scan_choice == "p":
-        source = prompt_sheet_source(root)
-        dry_run = (
-            prompt_choice(
-                "Dry run (detect prints without writing files)?",
-                "YN",
-                default="N",
-            )
-            == "y"
-        )
-        process_and_retouch(source, dry_run=dry_run)
-        return 0
-
-    polaroid = prompt_choice(
-        "Are these scans Polaroids? (No keeps the sheet unsplit for later processing)",
-        "YN",
-        default="Y",
-    ) == "y"
-    folder = default_scan_folder()
-    print(f"Scan target: {root / folder / 'masters'}")
-    dry_run = (
-        prompt_choice(
-            "Dry run (validate settings without scanning)?",
-            "YN",
-            default="N",
-        )
-        == "y"
-    )
-    output_path = run_scan(
-        folder=folder,
-        root=root,
-        state_dir=default_state_dir(),
-        dry_run=dry_run,
-    )
-    if not dry_run and output_path is not None and polaroid:
-        process_and_retouch(output_path, profile="polaroid")
-    return 0
+    while True:
+        print("\nPhoto Utilities\n  S) Scan a sheet\n  P) Process a photo folder\n  E) Process an existing sheet\n  V) Review a previous run\n  U) Restore culled photos\n  M) Maintenance and other tools\n  Q) Quit")
+        choice=prompt_choice('Select an action','SPEVUMQ')
+        if choice=='q': return 0
+        if choice=='v':
+            serve_review(input('Review job ID: ').strip()); continue
+        if choice=='u':
+            restore_archive(input('Archive job ID: ').strip()); continue
+        if choice=='m':
+            print('D) Scanner diagnostics · H) History & database · G) Similar groups only · R) Retouch TIFFs · B) Back')
+            action=prompt_choice('Maintenance','DHGRB')
+            if action=='d': doctor()
+            elif action=='h': history_cli.menu()
+            elif action=='g': find_similar([Path(input('Image folder: ').strip()).expanduser()])
+            elif action=='r': retouch(Path(input('TIFF or folder: ').strip()).expanduser())
+            continue
+        if choice=='p':
+            target=Path(input('Photo folder: ').strip()).expanduser()
+            recursive=prompt_choice('Include subfolders?','YN',default='Y')=='y'
+            edit=prompt_choice('Are these Polaroid TIFFs to auto-edit?','YN',default='N')=='y'
+            dry=prompt_choice('Dry run?','YN',default='N')=='y'
+            report=process_batch([target],recursive=recursive,profile='polaroid' if edit else 'none',dry_run=dry)
+        else:
+            kind='polaroids' if prompt_choice('Sheet contains Polaroids (P) or ordinary prints (O)?','PO',default='P')=='p' else 'prints'
+            profile='polaroid' if kind=='polaroids' and prompt_choice('Auto-edit the Polaroids?','YN',default='Y')=='y' else 'none'
+            dry=prompt_choice('Dry run?','YN',default='N')=='y'
+            source=prompt_sheet_source(default_root()) if choice=='e' else run_scan(folder=default_scan_folder(),root=default_root(),state_dir=default_state_dir(),dry_run=dry)
+            report=process_and_retouch(source,profile=profile,kind=kind,focus_review=True,dry_run=dry) if source else None
+        if report and prompt_choice('Open interactive review with cull/restore archive controls?','YN',default='Y')=='y':
+            open_report_review(report)
 
 
 def configuration_value(value: Any) -> Any:
@@ -380,10 +353,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.command == "doctor":
             doctor()
         elif args.command == "scan":
-            if args.kind == "prints":
-                raise ProcessingError("Print Splitting Not Implemented Yet")
-            if args.find_similar and args.retouch == "none":
-                raise ProcessingError("--find-similar requires a split sheet; scan --retouch none keeps the sheet unsplit.")
+            profile=args.retouch or ('polaroid' if args.kind=='polaroids' else 'none')
+            if args.kind=='prints' and profile!='none': raise ProcessingError('Auto-edit is implemented only for Polaroids.')
+            if args.capture_only and args.find_similar: raise ProcessingError('--capture-only cannot generate a print review.')
             output_path = run_scan(
                 folder=args.folder,
                 root=args.root,
@@ -393,29 +365,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 requested_device=args.device,
                 dry_run=args.dry_run,
             )
-            if output_path is not None and args.retouch == "polaroid":
-                process_and_retouch(output_path, profile=args.retouch,
-                                    find_similar_groups=args.find_similar, focus_review=args.focus_review)
-            elif args.dry_run and args.retouch == "polaroid":
-                print("After scanning: split/rotate/save, group and review focus, then apply the Polaroid recipe.")
+            report=None
+            if output_path is not None and not args.capture_only:
+                report=process_and_retouch(output_path,profile=profile,kind=args.kind,
+                    find_similar_groups=args.find_similar,focus_review=args.focus_review,
+                    tier_review=args.tier_review,auto_rotate=args.auto_rotate)
+            elif args.dry_run and not args.capture_only:
+                print('After scanning: split/rectify prints, auto-rotate quarter-turns, generate three-tier review, then optional Polaroid edits.')
+            if args.open_review: open_report_review(report)
         elif args.command == "process-sheet":
-            if args.kind == "prints":
-                raise ProcessingError("Print Splitting Not Implemented Yet")
-            process_and_retouch(
-                args.source,
-                output_dir=args.output_dir,
-                dry_run=args.dry_run,
-                profile=args.retouch,
-                **({"find_similar_groups": True} if args.find_similar else {}),
-                focus_review=args.focus_review,
-            )
+            profile=args.retouch or ('polaroid' if args.kind=='polaroids' else 'none')
+            report=process_and_retouch(args.source,output_dir=args.output_dir,dry_run=args.dry_run,
+                profile=profile,kind=args.kind,find_similar_groups=args.find_similar,
+                focus_review=args.focus_review,tier_review=args.tier_review,auto_rotate=args.auto_rotate)
+            if args.open_review: open_report_review(report)
         elif args.command == "similar":
             find_similar(args.targets, recursive=args.recursive, report=args.report,
                          dry_run=args.dry_run, no_db=args.no_db, threshold=args.vision_threshold,
-                         state_dir=args.state_dir, focus=args.focus_review)
+                         state_dir=args.state_dir, focus=args.focus_review, tiers=args.tier_review)
         elif args.command == "process":
-            process_batch(args.targets, recursive=args.recursive, report=args.report,
-                          profile=args.retouch, dry_run=args.dry_run, no_db=args.no_db)
+            report=process_batch(args.targets, recursive=args.recursive, report=args.report,
+                          profile=args.retouch, dry_run=args.dry_run, no_db=args.no_db,
+                          tiers=args.tier_review,auto_rotate=args.auto_rotate)
+            if args.open_review and not args.no_db: open_report_review(report)
         elif args.command == "review":
             serve_review(args.job_id, archive_root=args.archive_root)
         elif args.command == "restore-archive":

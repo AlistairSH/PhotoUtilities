@@ -90,3 +90,28 @@ Blurry/20261012-archive. Archive asset IDs/dates/lineage match the pre-conversio
 SQLite backup. The 475-image report was re-rendered, retaining 228 flags without
 rescanning or recategorizing images. ZIP-only archived previews and restore are
 covered by synthetic tests. No private image, ZIP, report or database is published.
+
+## Three-tier workflow integration — October 17, 2026
+
+The branch CLI now promotes the cached three-tier policy into production modules,
+using fresh native evidence and the actual batch size. Scan and folder workflows
+produce Top Pick / Review / Possible Cull with independent focus advice and the
+existing explicit reversible archive controls. The menu includes those workflows,
+saved sheets, previous reviews, restore and maintenance. Ordinary-print splitting
+supports separated rectangular prints against contrasting backgrounds; visual
+rotation uses conservative upright-face/body-pose evidence, only quarter-turns,
+with separate full-resolution TIFF derivatives and SQLite lineage. Sources remain
+unchanged. RestorationLab remains standalone; no Foundation Models prompts or
+external aesthetic predictors are incorporated.
+
+Verification: 113 core tests; strict Pyright zero errors. The promoted arithmetic
+policy exactly reproduces the archived 93-image tiers (5/60/28). A complete fresh
+154-image PhotoSamples run produced 12 Top Picks, 115 Review, 27 Possible Culls,
+23 groups and 86 ungrouped images, with all source hashes preserved. It corrected
+two image views and marked 89 orientations uncertain. Four disposable quarter-turn
+copies of one portrait all recovered upright; a final-helper persisted run checked
+four source identities, three rotation derivatives, SQLite integrity/foreign keys
+and source/output checksums. Synthetic browser Delete/Undo enabled/disabled the
+archive button without preselection. No real sample was archived or retouched.
+Physical ordinary-print acquisition and general orientation accuracy remain
+unverified; a horizon alone cannot disambiguate upside-down orientation.

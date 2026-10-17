@@ -191,25 +191,25 @@ class ProcessingTests(unittest.TestCase):
         )
         self.assertEqual(args.command, "process-sheet")
         self.assertTrue(args.dry_run)
-        with patch("photo_utils.cli.process_and_retouch") as process:
+        with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
             self.assertEqual(main(["process-sheet", str(self.source), "--dry-run"]), 0)
         process.assert_called_once_with(
             self.source,
             output_dir=None,
             dry_run=True,
             profile="polaroid",
-            focus_review=True,
+            focus_review=True,tier_review=True,auto_rotate=True,kind="polaroids",find_similar_groups=False,
         )
 
     def test_menu_selects_recent_sheet_and_prompts_for_dry_run(self):
         with patch("photo_utils.cli.list_sheet_sources", return_value=[self.source]):
-            with patch("builtins.input", side_effect=["s", "p", "", "y"]):
-                with patch("photo_utils.cli.process_and_retouch") as process:
+            with patch("builtins.input", side_effect=["e", "", "", "y", "", "q"]):
+                with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
                     with patch("sys.stdin.isatty", return_value=True):
                         self.assertEqual(main([]), 0)
                     process.assert_called_once_with(
                         self.source,
-                        dry_run=True,
+                        dry_run=True,profile="polaroid",kind="polaroids",focus_review=True,
                     )
 
     def test_sheet_prompt_defaults_to_most_recent_candidate(self):

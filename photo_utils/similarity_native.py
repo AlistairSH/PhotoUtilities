@@ -47,13 +47,13 @@ def native_helper() -> Path:
     return target
 
 
-def native_rows(paths: Sequence[Path], *, focus: bool = False) -> Iterator[dict[str, Any]]:
+def native_rows(paths: Sequence[Path], *, focus: bool = False, tiers: bool = False, auto_rotate: bool = False) -> Iterator[dict[str, Any]]:
     helper = native_helper()
     # Stream bounded pixel rows instead of spilling multi-gigabyte RGBA batch
     # exports to disk. Backpressure keeps at most one image row buffered.
     deadline=time.monotonic()+max(180,len(paths)*10)
     with tempfile.TemporaryFile() as errors:
-        process=subprocess.Popen([str(helper)]+(["--focus"] if focus else []),
+        process=subprocess.Popen([str(helper)]+(["--focus"] if focus else [])+(["--tiers"] if tiers else [])+(["--auto-rotate"] if auto_rotate else []),
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=errors)
         assert process.stdin is not None and process.stdout is not None
         selector=selectors.DefaultSelector()

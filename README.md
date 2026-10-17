@@ -1,14 +1,14 @@
 # PhotoUtilities
 
-An offline Mac CLI for Canon LiDE 400 scanner acquisition, four-print Polaroid
-sheet splitting, TIFF retouching, related-photo grouping, and SQLite processing history.
-On `experiment/ranking-culling`, the CLI also provides experimental focus review,
-relative group focus highlights, and explicit reversible review archives. Normal
-analysis preserves sources; requested archives move verified copies out of active
-folders and retain a verified ZIP for recovery.
+An offline Mac CLI for pre-process and scanning before importing into primary photo edit/management tools. Optionally starts with scanning sheets of images with sheet
+splitting. Pre-procession includes conservative visual rotation, related-photo grouping, and a three-tier review with optional culling. Scan flow includes optional automatic editing of Polaroid TIFFs. A SQLite DB preserves processing history and source/derivative relationships. Originals are retained.
 
-Future features: General digital/RAW archival ingestion, Apple Photos import, Photomator automation, Shortcuts, and watchers
-are not implemented.
+This describes the integrated `experiment/ranking-culling` checkpoint. It has not
+yet been merged into `main`.
+[RestorationLab](RestorationLab/README.md) is a related, separate film-restoration
+tool whose effectively complete source is preserved here for occasional use. RAW ingestion,
+generic photo edits, Apple Photos import, Photomator automation, Shortcuts and
+watchers are not implemented.
 
 ## Quick start
 
@@ -21,21 +21,24 @@ are not implemented.
    ```
    
 
-## Experimental branch: batch focus review and archiving
+## Main workflows: three-tier review and reversible culling
 
-This integration is on `experiment/ranking-culling` only; it remains unmerged into `main`. The user accepted the first full batch workflow
-and authorized pushing this checkpoint to the same experimental branch. It proposes manual review, never automatic rejection.
+The user has accepted the integrated workflow and report presentation. Tier labels
+help manual selection; they never automatically select photos for archiving.
 
 ```sh
-# Scan a supported four-Polaroid page: split/rotate, group/focus, then existing edits.
+# Scan four Polaroids: split/rotate, group/tier review, then the fixed edit recipe.
 .venv/bin/photo-utils scan --kind polaroids
+.venv/bin/photo-utils scan --kind prints --open-review
+.venv/bin/photo-utils scan --kind polaroids --retouch none
+.venv/bin/photo-utils scan --capture-only
 
 # Process a saved supported Polaroid master with the same flow.
 .venv/bin/photo-utils process-sheet "/path/to/master.tif" --kind polaroids
 
 # Process one or several JPEG/HEIC/PNG/single-image TIFF folders.
 .venv/bin/photo-utils process "/path/to/folder-one" "/path/to/folder-two"
-.venv/bin/photo-utils process "/path/to/rolls" --recursive
+.venv/bin/photo-utils process "/path/to/rolls" --recursive --open-review
 
 # Explicitly request the existing edit recipe on a batch of Polaroid TIFFs.
 .venv/bin/photo-utils process "/path/to/polaroid-tiffs" --retouch polaroid
@@ -50,32 +53,87 @@ and authorized pushing this checkpoint to the same experimental branch. It propo
 .venv/bin/photo-utils restore-archive ARCHIVE_JOB_ID
 ```
 
-`process` honors embedded image orientation when decoding; it does not guess
-upright orientation for untagged photos or rewrite JPEG/HEIC originals. Folders
-are shallow unless `--recursive` is supplied. A combined report is written beside
-the first target; `--report /existing/folder/new.html` selects another destination.
+`process` defaults to Top Pick / Keep & Review / Possible Cull review and visual quarter-turn
+rotation after honoring embedded orientation. No horizon straightening is applied.
+Upright face/people evidence must clearly favor one orientation; ambiguous scenes
+retain their orientation silently in the report; uncertainty is retained in metadata.
+Applied rotations have a note. Horizon measurements alone
+cannot resolve upside-down ambiguity. Corrected analysis views drive grouping and
+ranking. When using SQLite, full-resolution losslessly compressed TIFF derivatives
+are saved under `rotated/`, with retained depth/metadata, source checksums and lineage;
+original JPEG/HEIC/TIFF files are never overwritten. `--no-db` rotates analysis views
+only. `--no-auto-rotate` uses embedded orientation only.
+
+Folders are shallow unless `--recursive` is supplied. A combined report is written
+beside the first target; `--report /existing/folder/new.html` selects another path.
 Reruns choose numbered versions; explicit filenames refuse collisions. Scanner
-masters, existing retouches and `Blurry` archives are excluded from folder batch
-processing. Maximum 500 source images; grouping remains Vision revision 2 <.45
-OR strict SIFT. Similarity alone still does not edit/move photos. Default scan
-and process-sheet now include grouping/focus before the existing TIFF edits;
-`--no-focus-review` restores the previous split/retouch flow. `scan --retouch none`
-still preserves an unsplit master. Ordinary print splitting remains unimplemented:
-`--kind prints` fails explicitly before acquisition/writes.
+masters, existing retouches, `rotated/` and `Blurry` archives are excluded. Maximum
+500 source images; grouping remains Vision revision 2 <.45 OR strict SIFT.
+`similar` retains grouping-only behavior; add `--tier-review` for three tiers or
+`--focus-review` for the older focus report.
+
+`scan` and `process-sheet` split/rectify prints, rotate, generate tier review and
+then apply optional Polaroid edits. `--retouch none` skips edits **but still splits**;
+`scan --capture-only` explicitly saves an unsplit master. `--no-tier-review` keeps
+the older focus-only report. `--no-focus-review` skips review entirely on sheet
+commands unless `--find-similar` is supplied. `--open-review` starts the interactive
+local archive session after processing.
+
+`--kind polaroids` retains the four separated bordered-card layout and wide-border
+alignment. `--kind prints` supports 1–20 separated rectangular ordinary prints
+against a uniform contrasting background, with clear margins. Variable sizes and
+counts are accepted; uncertain boundaries/touching layouts stop processing.
+Perfectly aligned touching prints can be indistinguishable from one rectangle:
+physically separate prints. Ordinary prints default to no auto-edit; requesting
+`--retouch polaroid` for them fails before acquisition. Physical validation of the
+new ordinary-print splitter remains pending.
+
+Three-tier policy is promoted from the latest cached experiment, generalized to
+the actual batch size. It uses native Vision aesthetics/utility, highest face
+capture quality, eyes/smile, Gaussian1 regional detail, display-view endpoint
+clipping and saliency layout. Composition is advisory only. There are no quotas;
+close groups can have no Top Pick. Solos use the full batch as reference. The
+full policy is in the report and SQLite. Existing focus advice stays separate.
+macOS 15+ is required for tier aesthetics. No Foundation Models language-model
+calls or downloaded aesthetic predictors are used. RestorationLab source is preserved under `RestorationLab/` as a separate tool;
+its private runtime/data remain outside Git and it is not part of this workflow.
+
+### Review sheet presentation
+
+Tier labels appear in bars above each preview: green **Top Pick**, blue
+**Keep & Review**, and orange **Possible Cull**. The stored tier name `Review`
+is displayed as Keep & Review. Positive focus warnings read **Possible Missed
+Focus**; unflagged photos show `Focus review: No` without an explanatory note.
+Sharper/softer highlights remain separate from the tier.
+
+**Rank within set: x/y** is each photo's displayed position within its related set;
+for ungrouped images, it is the position within the ungrouped set. Solo tier
+assessment still uses full-batch evidence; the display rank is not a global rank.
+
+Boxes: red - faces, green - people, orange - animals, purple - objects, cyan -
+attention areas. The legend uses object/objects rather than the native detector
+identifier. Reports omit unknown-orientation comments and the retired introductory
+experimental-flags paragraph. Useful positive reasons and applied-rotation notes
+remain visible.
+
+The consolidated `../PhotoSamples/` collection is the reference for future mixed
+focus, group and quality tests. Never rewrite those originals during validation;
+use isolated SQLite and disposable copies for mutation/archive tests.
 
 The only implemented edit profile is the existing Polaroid TIFF recipe. Folder
 processing defaults to `--retouch none`; requesting the Polaroid profile on
 JPEG/HEIC inputs fails before processing rather than inventing digital edits.
 Edits remain separate derivatives with SQLite history. `--dry-run` is no-write;
 `--no-db` produces an analysis-only report without archive controls or edits.
-All commands accept `--state-dir` for an isolated database.
+Processing, review, history and database commands accept `--state-dir` for isolated
+state; `doctor` has no state option.
 
 Focus uses original sRGB pixels at 1024 and 2048 with Gaussian sigma 1. Baseline
 Yes always remains Yes. Baseline uses relative subject/background measurements,
 attention only when no other usable region exists, and a batch-bottom-10% global
 rule (requires at least 20 images; ties conservative). The additional score is
 contrast-aware edge spread, with the tested single-scale semantic confirmation
-and no-semantic objectness fallback. Unsupported regions cannot clear flags.
+and no-semantic object-region fallback. Unsupported regions cannot clear flags.
 Mixed material batches may change the relative baseline; no universal material
 calibration is claimed. Landmark and normalized-patch overrides are not used.
 
@@ -148,8 +206,10 @@ wrapper remains separately unverified.
 
 ## Installation
 
-Run from the project directory. Python 3.9 or newer is required; the Python
-package is `photo_utils` and the installed command is `photo-utils`.
+Run from the project directory. The default three-tier workflows require macOS
+15+ and Apple Command Line Tools; grouping without tiers supports macOS 14+.
+Python 3.9 or newer is required. The package is `photo_utils` and the installed
+command is `photo-utils`.
 
 ```sh
 cd "$HOME/Documents/PhotoScans/PhotoUtilities"
@@ -177,19 +237,21 @@ processing works offline after installation.
 
 The menu requires a terminal and offers:
 
-- **D — Doctor:** check scanner availability.
-- **S — Scan:** acquire a new sheet or select an existing Polaroid sheet.
-- **R — Retouch:** enter a TIFF/folder path and choose whether to dry-run.
-- **G — Related groups:** select an image folder and create a local report.
-- **H — History & Database:** browse jobs/assets/recipes, inspect lineage, export metadata, or run diagnostics.
+- **S — Scan a sheet:** choose Polaroids/ordinary prints, optional Polaroid edits,
+  then split/rotate and generate three-tier review.
+- **P — Process a photo folder:** optional recursion and Polaroid TIFF edits,
+  visual rotation, grouping and three-tier review.
+- **E — Process an existing sheet:** reuse a saved master without acquisition.
+- **V — Review a previous run:** enter the printed review job ID.
+- **U — Restore culled photos:** enter the archive job ID.
+- **M — Maintenance and other tools:** scanner diagnostics, history/database,
+  similarity-only grouping and standalone TIFF retouching.
 - **Q — Quit.**
 
-Under Scan, **S** acquires a new sheet, **P** selects an existing sheet, and
-**T** is the ordinary-print placeholder; **Q** quits. New acquisition asks whether the sheet
-contains Polaroids: Yes splits/retouches; No retains an unsplit master. The menu
-shows the date-based master destination and asks whether to dry-run. It does not
-ask for a custom folder name. Existing sheets are listed newest first, with the
-newest selected by Enter. Existing-sheet processing defaults to retouching.
+Successful processing offers an interactive local review session for manually
+selected Delete/Undo actions and confirmed reversible ZIP archival. Reports do
+not preselect Possible Cull photos. Ctrl-C ends the session. The menu returns
+after ordinary operations; maintenance provides a Back option.
 
 History & Database offers date-filtered jobs, recent jobs, job details,
 date-filtered assets, recipe selection, asset history, job export, diagnostics,
@@ -262,22 +324,17 @@ or contact an AI service itself.
 
 `scan` defaults to full-bed TIFF, 600 dpi, `48-bit-color`, and Polaroid
 splitting/retouching. Direct commands do not ask whether the sheet contains
-Polaroids. Use `--retouch none` to acquire only the untouched sheet.
+Polaroids. Use `--retouch none` to skip edits or `--capture-only` to save only the untouched sheet.
 A dry run validates scanner settings and shows the output pattern without
 acquiring, reserving a master ID, or writing files/database records.
 
-`--find-similar` analyzes saved original prints before default retouching, so
-manual/recipe edits cannot disturb the initial matching. It compares the saved
-prints in the output folder (normally that scan day's `prints/`, including prior
-sheets), and places the report there. Similarity failure stops the follow-up;
-the completed master/split outputs remain available. Existing scan behavior is
-unchanged when the flag is omitted. `scan --retouch none --find-similar` is
-invalid because that scan mode leaves the sheet unsplit.
-
-`--kind prints` is a deliberate placeholder: **Print Splitting Not Implemented
-Yet**, before acquisition or writes. Ordinary print pages are not treated as
-Polaroids. `process-sheet` has the same `--kind` placeholder and supports
-`--find-similar` with either `--retouch polaroid` or `--retouch none`.
+Analysis runs on saved original prints before retouching. The default tier workflow
+compares this sheet's extracted prints and places the report beside them. With
+`--no-focus-review --find-similar`, legacy grouping compares the saved-print folder
+(including prior sheets). Analysis failure stops subsequent edits but retains
+completed master/split outputs. `--kind prints` selects the ordinary-print splitter
+and defaults to no edits; `--kind polaroids` retains the established four-card
+splitter and default Polaroid recipe. Both support `--retouch none`.
 
 Other scan options:
 
@@ -298,11 +355,13 @@ Split an existing sheet, optionally without retouching:
 .venv/bin/photo-utils process-sheet "/path/to/sheet.tif" --retouch none
 ```
 
-The splitter requires exactly four separated Polaroids with detectable bright
-borders. It rectifies the outer corners, preserves the full borders, aligns the
+With `--kind polaroids`, the splitter requires exactly four separated Polaroids
+with detectable bright borders. It rectifies the outer corners, preserves the full borders, aligns the
 wide border to the bottom, and preserves sample depth and available resolution/
-ICC metadata. Uncertain geometry or orientation stops processing. Mixed layouts,
-touching/overlapping prints, and manual correction are unsupported.
+ICC metadata. Ambiguous geometry or Polaroid wide-border detection stops splitting. Visual
+upright uncertainty after splitting leaves orientation unchanged. With `--kind prints`, 1–20 separated rectangular prints are supported against a uniform
+contrasting background. Mixed Polaroid/ordinary layouts, touching/overlapping
+prints and manual correction are unsupported.
 
 `process-sheet --output-dir PATH` overrides the print destination while keeping
 identifiers. `--retouch none` still splits the sheet. A process-sheet dry run
@@ -371,7 +430,8 @@ PhotoScans/20261010/
 processing. Daily master numbers start at `001` and expand beyond `999`.
 SQLite reserves IDs atomically before acquisition; failed, interrupted, and
 deleted scans do not release their numbers. Print numbers start at `01` in
-spatial order: top-left, top-right, bottom-left, bottom-right. Resume preserves
+spatial order: top-left, top-right, bottom-left, bottom-right for four Polaroids;
+ordinary prints use detected spatial row order. Resume preserves
 assigned print identities; detection failure does not renumber them.
 
 Acquisition and derivatives use temporary TIFFs and atomic publication that
@@ -429,7 +489,8 @@ local-only storage is required.
 
 Use IDs printed by job/asset queries; a readable filename is not a database ID.
 `jobs` defaults to the 20 most recent jobs, with optional date/type/status filters.
-Types are `scan`, `split`, `retouch`, `similarity`; statuses are `pending`, `running`,
+Types are `scan`, `split`, `retouch`, `similarity`, `review-archive`; statuses are
+`pending`, `running`,
 `completed`, `partial`, `failed`. Job times display in the local timezone.
 `assets` can filter by date, stage (`master`, `print`, `retouch`, `external`),
 and stored asset status. It groups assets by their master or external source.
@@ -470,8 +531,9 @@ not the PhotoUtilities application.
 
 If discovery fails, check USB and run `scanimage -L` and `sane-find-scanner -q`.
 Use `--device` when multiple LiDE 400 scanners are connected. For uncertain
-splitting, ensure all four cards and their separated borders are in frame;
-the CLI cannot provide manual corner correction. Unsupported retouch formats
+splitting, keep all four Polaroid borders in frame or separate ordinary prints
+against a contrasting background with clear margins; manual corner correction
+is unsupported. Unsupported retouch formats
 must be converted separately while retaining the original source.
 
 For a database-binding mismatch, use the root's configured `--state-dir`; do not
@@ -496,12 +558,33 @@ development checker and run it with:
 Pyright may download a Node runtime on its first run. The checker covers
 `photo_utils`; the regression suite verifies tests separately.
 
-As recorded October 10, 2026: 67 automated tests pass. Actual local
-ImageMagick/ExifTool processing on a synthetic TIFF verified 16-bit RGB, system
-sRGB, checksums, and no JSON sidecars. A direct physical `scanimage` acquisition
-was verified at 600 dpi/48-bit RGB, and a real sheet was split into four prints.
-The latest Python acquisition wrapper has simulated coverage; a physical test
-of that updated wrapper and calibrated color appearance remain outstanding.
+Recorded October 17 integration validation: **113 core tests passed**, strict
+Pyright reported zero errors, and the promoted tier arithmetic exactly matched
+all 93 cached historical tier assignments (5 Top Pick / 60 Review / 28 Possible
+Cull). A fresh then-154-image PhotoSamples run produced 12 Top Pick, 115 Review,
+27 Possible Cull, 23 groups and 86 ungrouped images with unchanged source hashes.
+These are recorded sample outcomes, not a universal accuracy estimate or a claim
+that this documentation edit reran image processing.
+
+Synthetic checks covered source/output changes, 16-bit rotation pixels and depth,
+lineage, archive/restore, ZIP corruption, collisions, rollback and local HTTP
+protections. Four quarter-turn copies of a portrait recovered upright; isolated
+persisted native analysis passed database integrity/foreign-key/checksum checks.
+Report layout and Delete/Undo were checked using synthetic browser images.
+
+Direct SANE acquisition at 600 dpi/48-bit RGB and a real four-Polaroid split were
+previously verified. Hardware acquisition through the latest Python wrapper,
+ordinary-print physical scanning, higher resolutions, calibrated colour and broad
+orientation/ranking accuracy remain unverified. Analysis uses macOS 14+ Vision;
+the default three-tier aesthetic measurement requires macOS 15+.
+
+The standalone object/attention orientation fallback was evaluated on 89 available
+mixed examples, including the two previously rotated photos. User labels marked
+five needing rotation and 84 correct at 0°. Both methods missed all five needed
+rotations and each suggested six incorrect rotations; the fallback was **not
+adopted**. Its long-edge boundary was only a proxy for horizon height. Normal CLI
+rotation continues to use face/body evidence and leaves uncertain images unchanged,
+without a report comment. See [the standalone experiment](experiments/orientation_saliency/README.md).
 
 The legacy import migrated 31 metadata files, with integrity/foreign keys passing
 and no changed image checksums. One pre-existing master reference was missing;
@@ -511,17 +594,3 @@ See [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md) for the database
 backup location and implementation checks.
 See [PROJECT.md](./PROJECT.md) for confirmed decisions and deferred requirements,
 and [AGENTS.md](./AGENTS.md) for development instructions.
-
-## Related separate tool: RestorationLab
-
-[RestorationLab](RestorationLab/README.md) is an effectively complete, standalone
-film-restoration workflow worth retaining for occasional future rolls of old or
-unprocessed film. Its source, selected colour/SCUNet-blend/sharpening recipe,
-dependency snapshot, historical scripts and upstream architecture/licence are
-preserved under RestorationLab/. It is not a photo-utils command, menu option,
-normal pipeline stage or installation dependency.
-
-The existing private runtime, weights, actual input lists, manifests, audits and
-reference photographs remain outside Git in sibling ../RestorationLab; restored
-images remain in ../Restored. Use the separate tool's README for explicit paths,
-read-only checks and intentional batch processing. Original photos are retained.

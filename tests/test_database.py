@@ -137,7 +137,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(len(result['missing_files']),1)
         with patch('builtins.print'),self.assertRaises(RetouchError):
             retouch(self.source,output_dir=self.root/'standalone-outputs')
-        with patch('sys.stdin.isatty',return_value=True),patch('builtins.input',side_effect=['h','2','9']),patch('builtins.print'):
+        with patch('sys.stdin.isatty',return_value=True),patch('builtins.input',side_effect=['m','h','2','9','q']),patch('builtins.print'):
             self.assertEqual(main([]),0)
 
     def test_naming_ledger_is_imported_without_reset_or_second_database(self):

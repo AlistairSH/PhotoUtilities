@@ -8,14 +8,15 @@ from .retouch import retouch,RetouchOptions
 
 
 def process_batch(targets: Sequence[Path], *, recursive: bool = False, report: Optional[Path] = None,
-                  profile: str = 'none',dry_run: bool = False,no_db: bool = False) -> Optional[Path]:
+                  profile: str = 'none',dry_run: bool = False,no_db: bool = False,
+                  tiers: bool = True, auto_rotate: bool = True) -> Optional[Path]:
     if profile not in ('none','polaroid'):raise SimilarityError('Unsupported folder edit profile.')
     paths=collect_images(targets,recursive,skip_generated=True)
     # Do not recursively ingest already-generated edits, scanner masters or
     # soft archives when the root of the photo collection is supplied.
     filtered: list[Path]=[]
     for path in paths:
-        if any(part in ('Blurry','retouches','masters') for part in path.parts):continue
+        if any(part in ('Blurry','retouches','masters','rotated') or part.endswith('-retouched') for part in path.parts):continue
         if 'retouched' in path.stem or '-retouch' in path.stem:continue
         filtered.append(path)
     if not filtered:raise SimilarityError('No source images remain after excluding masters, retouches and archives.')
@@ -31,7 +32,8 @@ def process_batch(targets: Sequence[Path], *, recursive: bool = False, report: O
         while candidate.exists():
             counter+=1;candidate=destination.with_name(f'review-v{counter:02d}.html')
         destination=candidate
-    result=find_similar(filtered,report=destination,focus=True,dry_run=dry_run,no_db=no_db)
+    oriented_sources: dict[str,Path] = {}
+    result=find_similar(filtered,report=destination,focus=True,tiers=tiers,auto_rotate=auto_rotate,dry_run=dry_run,no_db=no_db,oriented_sources=oriented_sources)
     if profile=='polaroid':
-        for path in filtered:retouch(path,options=RetouchOptions(profile=profile),dry_run=dry_run)
+        for path in filtered:retouch(oriented_sources.get(str(path),path),options=RetouchOptions(profile=profile),dry_run=dry_run)
     return result

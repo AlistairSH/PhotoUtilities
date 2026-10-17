@@ -283,7 +283,7 @@ class RetouchPipelineTests(unittest.TestCase):
         with patch("photo_utils.cli.process_sheet", return_value=outputs) as split:
             with patch("photo_utils.cli.retouch") as apply_retouch:
                 process_and_retouch(self.source, profile="polaroid")
-        split.assert_called_once_with(self.source, output_dir=None, dry_run=False)
+        split.assert_called_once_with(self.source, output_dir=None, dry_run=False,kind="polaroids")
         apply_retouch.assert_called_once()
         self.assertEqual(apply_retouch.call_args.args[0], outputs[0].parent)
 
@@ -297,4 +297,4 @@ class RetouchPipelineTests(unittest.TestCase):
         with patch("photo_utils.cli.run_scan", return_value=self.source):
             with patch("photo_utils.cli.process_and_retouch") as pipeline:
                 self.assertEqual(main(["scan"]), 0)
-        pipeline.assert_called_once_with(self.source, profile="polaroid", find_similar_groups=False, focus_review=True)
+        pipeline.assert_called_once_with(self.source, profile="polaroid", kind="polaroids", find_similar_groups=False, focus_review=True,tier_review=True,auto_rotate=True)

@@ -35,7 +35,7 @@ PARAMETERS: dict[str, Any] = {
 def collect_images(targets: Sequence[Path], recursive: bool = False, *, skip_generated: bool = False) -> list[Path]:
     found: set[Path] = set()
     def excluded(path: Path) -> bool:
-        return skip_generated and (any(part in ('Blurry','retouches','masters') for part in path.parts)
+        return skip_generated and (any(part in ('Blurry','retouches','masters','rotated') or part.endswith('-retouched') for part in path.parts)
             or 'retouched' in path.stem or '-retouch' in path.stem)
     for target in targets:
         target = target.expanduser().resolve()
@@ -128,7 +128,7 @@ def components(count: int, pairs: Sequence[dict[str, Any]], *, likely_only: bool
     return sorted(groups, key=lambda group: (-len(group), group))
 
 
-def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45, *, focus: bool = False) -> dict[str, Any]:
+def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45, *, focus: bool = False, tiers: bool = False, auto_rotate: bool = False) -> dict[str, Any]:
     images: list[dict[str, Any]] = []
     features: list[dict[str, Any]] = []
     pairs: list[dict[str, Any]] = []
@@ -137,7 +137,8 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
     detector: Any = cast(Any, cv2).SIFT_create(nfeatures=500)
     matcher = cv2.BFMatcher(cv2.NORM_L2)
     focus_rows: list[dict[str, Any]] = []
-    stream = native_rows(paths, focus=True) if focus else native_rows(paths)
+    focus = focus or tiers
+    stream = native_rows(paths, focus=focus, tiers=tiers, auto_rotate=auto_rotate) if tiers or auto_rotate else (native_rows(paths, focus=True) if focus else native_rows(paths))
     for row in stream:
         if completed:
             raise SimilarityError('Unexpected native output after completion.')
@@ -151,7 +152,11 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
             rgba = np.frombuffer(base64.b64decode(row['rgba'], validate=True), np.uint8).reshape(h, w, 4)
             if focus:
                 from .focus import measure
-                focus_rows.append(measure(rgba[:, :, :3], row['detectors'], row['path'], 1024))
+                measured = measure(rgba[:, :, :3], row['detectors'], row['path'], 1024)
+                if tiers:
+                    from .tiers import exposure
+                    measured.update(exposure=exposure(rgba[:,:,:3],row['detectors']), ranking_native=row['ranking_native'],pixel_size=[w,h])
+                focus_rows.append(measured)
             gray = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2GRAY)
             keypoints, descriptors = detector.detectAndCompute(gray, None)
             features.append({'points': np.asarray([k.pt for k in cast(Sequence[Any], keypoints)], dtype=np.float32),
@@ -165,7 +170,9 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
             images.append({'path': str(paths[index]), 'sha256': hashes[index], 'width': w,
                            'height': h, 'sift_features': len(keypoints),
                            'thumbnail': base64.b64encode(encoded.tobytes()).decode('ascii'),
-                           **({'detectors':row['detectors']} if focus else {})})
+                           **({'detectors':row['detectors']} if focus else {}),
+                           **({'ranking_native':row['ranking_native']} if tiers else {}),
+                           'rotation':row.get('rotation',{'quarter_turns_clockwise':0,'status':'disabled'})})
             print(f'Analyzed {index + 1}/{len(paths)} images', flush=True)
         elif row['type'] == 'focus':
             if not focus or not images or row['index'] != len(images)-1 or row['path'] != images[-1]['path'] or row['max_dimension'] != 2048:
@@ -176,7 +183,9 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
             if min(w,h)<1 or max(w,h)>2048:raise SimilarityError('Invalid focus image dimensions.')
             rgba=np.frombuffer(base64.b64decode(row['rgba'],validate=True),np.uint8).reshape(h,w,4)
             from .focus import measure
-            focus_rows.append(measure(rgba[:,:,:3],row['detectors'],row['path'],2048))
+            measured = measure(rgba[:,:,:3],row['detectors'],row['path'],2048)
+            if tiers: measured.update(ranking_native=row['ranking_native'],pixel_size=[w,h])
+            focus_rows.append(measured)
         elif row['type'] == 'pair':
             a, b = int(row['a']), int(row['b'])
             if len(images) != len(paths) or not 0 <= a < b < len(paths) or (a, b) in seen_pairs:
@@ -213,6 +222,9 @@ def analyze(paths: Sequence[Path], hashes: Sequence[str], threshold: float = .45
         result['focus_parameters']=FOCUS_PARAMETERS;result['focus_version']=FOCUS_VERSION
         result['focus_rows']=focus_rows
         relative_focus(result,focus_rows)
+    if tiers:
+        from .tiers import rank
+        rank(result,focus_rows)
     return result
 
 
@@ -276,6 +288,9 @@ def persist_result(db: sqlite3.Connection, job: str, result: dict[str, Any]) -> 
                    'disposition': 'candidate' if membership is not None else 'unmatched'}
         if 'focus_review' in image:
             payload['focus_review']=image['focus_review'];payload['focus_comparison']=image.get('focus_comparison')
+        if 'tier_review' in image:
+            payload.update(tier_review=image['tier_review'],tier_version=result['tier_version'],tier_policy=result['tier_policy'])
+        payload['rotation']=image.get('rotation')
         db.execute('INSERT INTO recipes VALUES (?,?,?,?,?,?,?,?)',
                    (uuid.uuid5(uuid.NAMESPACE_URL, f'{job}:{asset_id}:similarity').hex, job, asset_id,
                     None, 'similarity', database.now(), VERSION, database.encode(payload)))
@@ -283,11 +298,14 @@ def persist_result(db: sqlite3.Connection, job: str, result: dict[str, Any]) -> 
 
 def find_similar(targets: Sequence[Path], *, recursive: bool = False, report: Optional[Path] = None,
                  dry_run: bool = False, no_db: bool = False, threshold: float = .45,
-                 state_dir: Optional[Path] = None, focus: bool = False) -> Optional[Path]:
+                 state_dir: Optional[Path] = None, focus: bool = False, tiers: bool = False, auto_rotate: bool = False,
+                 oriented_sources: Optional[dict[str, Path]] = None) -> Optional[Path]:
     if not math.isfinite(threshold) or not 0 < threshold <= 2:
         raise SimilarityError('Vision threshold must be finite and in (0, 2].')
     paths = collect_images(targets, recursive)
     destination = report_location(targets, paths, report)
+    focus = focus or tiers
+    if tiers: print("Three-tier review: Top Pick / Review / Possible Cull; manual selection only.")
     if focus:print('Focus review: Gaussian1 baseline + contrast/scale confirmation; originals analyzed before edits.')
     print(f'Similarity: {len(paths)} images, {len(paths) * (len(paths) - 1) // 2} comparisons; Vision <{threshold:g} OR SIFT')
     print(f'Report: {destination} (a new numbered version if occupied)' if report is None else f'Report: {destination}')
@@ -321,11 +339,17 @@ def find_similar(targets: Sequence[Path], *, recursive: bool = False, report: Op
         published: Optional[Path] = None
         tick = time.perf_counter()
         try:
-            result = analyze(paths, hashes, threshold, focus=True) if focus else analyze(paths, hashes, threshold)
+            result = analyze(paths, hashes, threshold, focus=focus, tiers=tiers, auto_rotate=auto_rotate) if tiers or auto_rotate else (analyze(paths, hashes, threshold, focus=True) if focus else analyze(paths, hashes, threshold))
             result['job_id']=job;result['archive_enabled']=not no_db
             result['state_dir']=str(database.state_dir())
+            payload.update(result)
             if hashes != [database.digest(p) for p in paths]:
                 raise SimilarityError('Source image changed during analysis; no report was published.')
+            if auto_rotate and not no_db:
+                from .rotation import publish_rotations
+                publish_rotations(result)
+            if oriented_sources is not None:
+                oriented_sources.update({image['path']:Path(image.get('rotation',{}).get('output',image['path'])) for image in result['images']})
             if focus:
                 from .focus_report import render
             else:
@@ -352,7 +376,7 @@ def find_similar(targets: Sequence[Path], *, recursive: bool = False, report: Op
             return published
         except BaseException as exc:
             if not no_db:
-                payload.update(status='partial' if published is not None or isinstance(exc, KeyboardInterrupt) else 'failed', error=str(exc))
+                payload.update(status='partial' if published is not None or isinstance(exc, KeyboardInterrupt) or any(i.get('rotation',{}).get('output') for i in payload.get('images',[])) else 'failed', error=str(exc))
                 with database.transaction() as db:
                     database.save_job(db, job, 'similarity', payload, destination)
             if isinstance(exc, (KeyboardInterrupt, SimilarityError, database.DatabaseError, OSError)):

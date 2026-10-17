@@ -151,15 +151,11 @@ class SimilarityTests(unittest.TestCase):
         self.assertIn('id="unmatched"', page)
         self.assertNotIn('https://', page)
 
-    def test_print_placeholder_fails_before_scan_or_split(self):
-        for args in (['scan', '--kind', 'prints'], ['process-sheet', str(self.paths[0]), '--kind', 'prints']):
-            with patch('photo_utils.cli.run_scan') as scan, patch('photo_utils.cli.process_sheet') as split, \
-                    patch('builtins.print', wraps=self.real_print), \
-                    patch('sys.stderr', new_callable=io.StringIO) as stderr:
-                self.assertEqual(main(args), 1)
-                self.assertIn('Print Splitting Not Implemented Yet', stderr.getvalue())
-                scan.assert_not_called()
-                split.assert_not_called()
+    def test_ordinary_prints_reject_polaroid_edit_before_acquisition(self):
+        for args in (['scan','--kind','prints','--retouch','polaroid'],['process-sheet',str(self.paths[0]),'--kind','prints','--retouch','polaroid']):
+            with patch('photo_utils.cli.run_scan') as scan, patch('photo_utils.cli.process_sheet') as split:
+                self.assertEqual(main(args),1)
+                scan.assert_not_called();split.assert_not_called()
 
     def test_scan_followup_analyzes_originals_before_retouch(self):
         order = []

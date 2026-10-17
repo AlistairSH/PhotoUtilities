@@ -1,530 +1,207 @@
-# PhotoUtilities
-
-Current project scope and confirmed decisions, updated October 12, 2026.
-See [README.md](./README.md) for installation, commands, and troubleshooting.
-
-## Status and next objective
-
-**Phase 1: functional / done-ish.** The documented 2x2 LiDE 400 Polaroid workflow has worked on actual samples: SANE 600 dpi 48-bit capture, four-print detection/rectification, fixed ImageMagick retouch, immutable TIFFs and SQLite job/asset/recipe tracking. Do not call it feature-complete: the updated Python acquisition wrapper has not been recorded as physically verified; mixed/touching layouts, calibrated ICC, broader input formats, Photos import and quality assessment are unimplemented. The README is the operational record; test counts below are historical, not results from this documentation change.
-
-**Phase 2: related-photo grouping is implemented and accepted.** The existing CLI uses local Vision + SIFT, SQLite source-asset relationships, a lightweight HTML report and the photo-toolkit skill. Technical quality assessment and further editing automation remain deferred. No generative image reconstruction.
-
-**Phase 3: manual focus review is usable on experiment/ranking-culling.** The user
-accepted a 475-image batch workflow with similar-group focus highlights and
-explicit reversible culling. Archives now retain only verified ZIPs in dated
-folders, and unflagged images have no explanatory note. This remains branch-only;
-general digital edits and ordinary-print splitting are still deferred.
-
-
-## Current application
-
-PhotoUtilities is an offline Python CLI for Canon LiDE 400 scanner sheets and
-compatible TIFF retouching on an Apple Silicon Mac running macOS Tahoe 26.
-It uses SANE `scanimage` for acquisition, NumPy/OpenCV/tifffile for splitting,
-and ImageMagick 7/ExifTool for retouching and metadata handling.
-
-Implemented commands:
-
-```text
-photo-utils                         interactive menu
-photo-utils doctor
-photo-utils scan [--root PATH] [--state-dir PATH] [--dry-run] [--retouch polaroid|none]
-photo-utils process-sheet SOURCE [--output-dir PATH] [--dry-run] [--retouch polaroid|none]
-photo-utils retouch TARGET [--output-dir PATH] [--profile polaroid] [--preview] [--version-history] [--dry-run]
-photo-utils similar TARGET... [--recursive] [--report PATH] [--no-db] [--dry-run] [--state-dir PATH]
-photo-utils jobs [--date YYYYMMDD] [--type scan|split|retouch|similarity] [--status STATUS] [--limit N]
-photo-utils job show JOB_ID
-photo-utils job export JOB_ID [--format json] [--output PATH]
-photo-utils assets [--date YYYYMMDD] [--stage master|print|retouch|external] [--status STATUS]
-photo-utils recipe show ASSET_ID [--recipe-id RECIPE_ID]
-photo-utils history ASSET_ID
-photo-utils db check [--checksums]
-```
-
-Processing/query commands accept `--state-dir`; see their `--help` for all
-options. The menu offers Doctor, Scan, Retouch, Related Groups, History & Database, and Quit.
-Submenu exit options are labelled Quit and exit the CLI; no Back navigation is implemented.
-Scan offers new acquisition or selection of an existing sheet. Only the
-interactive new-scan flow asks whether the sheet contains Polaroids; direct
-`scan` defaults to splitting/retouching unless `--retouch none` is supplied.
-
-The sheet processor requires exactly four separated Polaroids with detectable
-borders. It rectifies the outer corners, retains the borders, aligns the wide
-border to the bottom, and preserves sample depth and available resolution/ICC
-metadata. Uncertain detection/orientation stops processing; manual correction,
-touching/overlapping prints, and mixed layouts are not implemented.
-
-## Confirmed user decisions
-
-- Keep production processing, photos, and metadata local. The project now has an existing GitHub repository; experimental code may be developed on a branch, but no automatic push/merge, no photo/database commits, and no cloud processing, telemetry, accounts, or paid service dependency.
-- Preserve untouched sheet masters and extracted print sources. Never silently overwrite an image or automatically delete/reject photographs.
-- Use the fixed `polaroid` ImageMagick recipe on the entire 16-bit RGB print TIFF, including its border: sigmoidal contrast `4x35%`, gamma `1.70`, level `5%,98.5%`, gamma `1.09`, red-channel gamma `1.04`, sRGB profiling, and 16-bit output. The retired `faithful` profile is not a CLI option.
-- The user confirms the current polaroid profile works as intended. `photo_utils/retouch.py` defines its settings; SQLite recipes record the effective settings used for each output.
-- Convert tagged retouch inputs to the system sRGB profile; assign sRGB to untagged inputs. Preserve compatible metadata and record effective parameters/backend versions in SQLite.
-- `scan` and `process-sheet` default to `--retouch polaroid`. `scan --retouch none` keeps an unsplit master; `process-sheet --retouch none` still splits but skips retouching.
-- Standalone retouch accepts one compatible TIFF or a recursive TIFF folder and can register an external source without requiring a scan job.
-
-## File organization and identifiers
-
-The repository is `~/Documents/PhotoScans/PhotoUtilities`. Photo data stays
-outside it. The default scan root is `~/Documents/PhotoScans`; `scan --root`
-selects another parent. Documents may be iCloud-synced; its pathname alone does
-not guarantee local-only storage.
- 
-New scans use `YYYYMMDD/{masters,prints,retouches}/` under the root, based on
-local scan initiation date. All derivatives inherit that date, even when
-processed later. Names are:
-
-```text
-YYYYMMDD-NNN-master.tif
-YYYYMMDD-NNN-PP-print.tif
-YYYYMMDD-NNN-PP-retouch.tif
-YYYYMMDD-NNN-PP-retouch-v02.tif     explicit version history
-```
-
-Daily master numbers start at `001`, are reserved atomically before acquisition,
-and expand beyond `999`. Failed, interrupted, or deleted scans consume their
-IDs. Prints are numbered top-left, top-right, bottom-left, bottom-right; resume
-preserves assigned geometry/identities. Identical completed retouches are
-verified/reused; changed outputs or settings are refused. `--version-history`
-creates subsequent numbered versions for identified prints.
-
-`--folder` is accepted only for backward compatibility and does not change the
-scan date directory. The menu no longer asks for a custom scan folder.
-`--output-dir` explicitly overrides derivative destinations while retaining IDs.
-Identified prints default to the original date's `retouches/`; unidentified
-standalone TIFFs retain the sibling `-retouched` directory behavior.
-
-Existing photos are never automatically renamed or moved. Existing legacy
-split jobs retain their image names. New processing of a legacy sheet registers
-a persistent identity using its LiDE filename date, or local modification date
-when the original scan date is unknown.
-
-## SQLite tracking
-
-The existing `jobs.sqlite3` is the single tracking database. Its default state
-directory is `~/Library/Application Support/PhotoUtilities`; configuration is
-through `--state-dir` or `PHOTO_UTILITIES_STATE_DIR`. Scan-root bindings prevent
-separate databases from allocating IDs for the same root. Existing naming
-ledgers are read-only migration inputs; counters are never reset.
-
-Schema version 1 extends existing scan jobs and adds assets, recipes, complete
-metadata records, migration tracking, and naming counters. Jobs/assets/recipes
-have indexed relational identities, parents, dates, stages, and statuses;
-variable fields retain their full JSON-compatible TEXT structure. Imported
-original JSON text preserves numerical precision. Images are not SQLite BLOBs.
-Schema changes back up existing SQLite first and use repeatable transactions
-with foreign keys enabled.
-
-Routine processing writes no manifest/recipe/job JSON sidecars. JSON export is
-explicit. The user confirmed legacy metadata cleanup is complete. The one-time
-legacy import and cleanup commands have been removed; imported history remains
-in SQLite.
-
-## Verification and known limits
-
-Application modules pass Pyright strict checking with Python 3.9 compatibility;
-`pyrightconfig.json` selects the project virtual environment. See README for
-the optional development checker and regression commands.
-
-- Direct physical `scanimage` acquisition was verified on this Mac at 600 dpi and 48-bit RGB (three 16-bit samples per pixel). Acquisition through the latest Python wrapper has simulated coverage, not a recorded physical verification. Higher advertised resolutions remain untested.
-- A real scanner sheet was split into four 16-bit RGB derivatives. Other sheet layouts and calibrated color appearance remain unverified.
-- The SQLite implementation passed 67 current automated tests and an actual ImageMagick/ExifTool run on a synthetic TIFF with 16-bit RGB, sRGB, checksums, and no JSON sidecars.
-- The October 10 legacy import migrated 31 metadata files; database integrity and foreign keys passed. One old master reference was already missing. The user subsequently confirmed legacy JSON cleanup is complete. Details are in [SQLITE_IMPLEMENTATION.md](./SQLITE_IMPLEMENTATION.md).
-
-## Accepted similarity feature — October 11, 2026
-
-The user authorized integrating Vision <.45 OR strict SIFT into the existing
-toolkit, preserving image folders and adding a lightweight HTML review report
-beside images. `photo-utils similar` accepts standalone camera/lab photos;
-JPEG/HEIC recent test batches were camera images, not all scans. Original scans
-or camera images should be analyzed before manual edits. Reports list likely
-and potential groups and unmatched photos, with embedded previews and no
-diagnostic scores. Chaining is retained; no culling or photo relocation.
-
-Routine analysis is persisted in existing schema-v1 SQLite jobs/recipes linked
-to source asset identities. Derivative history includes inherited source
-similarity analysis. No additional tracking database or schema migration.
-`--no-db` and no-write `--dry-run` remain available. `scan`/`process-sheet`
-support opt-in `--find-similar`, after saving prints and before retouching.
-The saved-print output folder is the comparison set, normally all prints from
-that date. Existing processing without the flag is retained.
-
-The user requested an ordinary-print splitting placeholder: `--kind prints`
-must error with `Print Splitting Not Implemented Yet` before scanning/writing.
-Actual ordinary-print splitting remains deferred. The local photo-toolkit
-skill routes plain-English prompts to these commands; it is not an English
-parser or cloud inference dependency inside the CLI.
-
-Integration verification: 81 automated tests passed; strict Pyright reports zero
-errors. The integrated native CLI reproduced the existing 60-image grouping
-exactly (20 sets, seven unmatched), and the five HEIC images connected as one
-set. Persistence/integrity checks used isolated SQLite; the production database
-and source checksums were unchanged. Embedded previews and original links were
-checked, the Swift helper is included in the source distribution, and the
-installed skill passed its standard validator. Scan follow-up order has
-simulated coverage; no new physical scanner acquisition was performed.
-
-The user reviewed 13 recursive photo batches (1,205 original images), with
-143 candidate groups and 820 unmatched images, and accepted this as a permanent
-feature. Sources remained unchanged. Pure feasibility/benchmark scripts and
-historical experiment notes are retained only on `experiment/apple-vision`.
-Production regression tests remain with the feature.
-
-## Deferred requirements
-
-Earlier goals for digital JPEG/HEIC/RAW folder ingestion, checksummed digital
-archival, conservative quality review, capture-date overrides, image export for
-Apple Photos, and explicit supported Photos import remain unimplemented.
-The existing `job export` exports metadata JSON, not photos to Apple Photos.
-
-Photomator automation, Shortcuts, inbox watching, broader sheet layouts, and
-manual correction are also deferred. Do not begin them without a new user task.
-If added later, retain RAW/sidecar/Live Photo relationships, verify archived
-copies before editing, never invent capture dates for scanned prints, and keep
-quality screening optional with no automatic deletion. Verify external tool
-support on this Mac before promising automation or import capabilities.
-
-
-## Branch-only focus-review integration — October 12, 2026
-
-On `experiment/ranking-culling` the user authorized main-CLI integration of the
-selected experimental focus policy and reversible manual culling archives. The user authorized this checkpoint to be committed and pushed on the same
-experimental branch; it remains unmerged into main. `process` handles one/multiple folders with embedded
-orientation, accepted similarity grouping and focus review before optional
-existing Polaroid TIFF edits. Scan/process-sheet include group/focus review before
-retouch by default, with `--no-focus-review` opt-out. Ordinary print splitting,
-general JPEG/HEIC edits, guessed upright rotation and RAW ingestion remain deferred.
-
-The selected policy preserves baseline Yes, Gaussian1, attention-only fallback,
-10% global cohort tail, global contrast with semantic scale confirmation and
-no-semantic objectness fallback. Failed landmark/patch overrides are excluded.
-Group sharper/softer highlights use a new conservative direct-pair focus heuristic,
-not a calibrated universal score or automatic deletion decision.
-
-The user expressly requested soft deletion. `review JOB_ID` runs an explicit
-loopback-only tokenized session for Delete/Undo selections and archive confirmation.
-`restore-archive JOB_ID` restores without overwriting. Verified ZIP-only archives in dated
-folders are stored under scan-root/Blurry; companions and tracked derivatives
-move, scanner masters do not. Asset identities/dates/lineage are preserved in the
-existing schema-v1 database; no new tracking database or routine sidecars. These
-explicit user-requested archive moves are the exception to unchanged-source analysis.
-
-Verification: 97 automated tests passed, including no-clobber moves and ZIP
-verification failure before any source move. Strict Pyright
-reports zero errors. Native CLI ran both existing sample sets, matched the selected
-per-set flags exactly, retained all ten confirmed misses, and found one sharper/
-softer group pair. Final streaming/Gaussian1-only combined run: 92 originals,
-19 + 26 review flags, 82 seconds including grouping with cached helper. Originals
-were verified unchanged, and persistence/integrity checks used isolated SQLite.
-Archive/restore, failure rollback, collisions, companions, masters and HTTP session/
-origin protections were tested on synthetic files; no user photo was archived by those tests.
-Delete/Undo and report layout were inspected in a synthetic loopback browser page.
-Scanner hardware acquisition was not repeated or claimed newly validated.
-
-
-## Accepted batch workflow checkpoint — October 12, 2026
-
-The user reviewed the combined run on 08477, OldScans01, Photos20260618 and
-17268 08082025 2 and called it successful. It processed 475 originals recursively
-in about eight minutes: 55 groups (39 pairs, four triples, 12 groups of 4–9),
-322 ungrouped images, 228 focus-review flags, seven sharper and five softer group
-highlights. Source checksums were preserved; no image was automatically culled.
-An explicit loopback review session provided Delete/Undo and confirmed archival.
-
-The requested UI refinement removes explanatory text from unflagged images.
-Their yes/no status and relative group highlights remain visible; stored category
-continues to mean unassessed. Positive flags retain reasons and bounding boxes.
-Historical saved jobs can be re-rendered without reanalyzing photos. Diagnostic
-code/tests and findings are retained on this branch, while image/report/database
-artifacts remain local and untracked. CLI focus policy and archive behavior remain
-unchanged. This is a usable manual-review workflow, not a universally validated
-focus classifier. General digital edits and ordinary-print splitting remain deferred.
-
-The user explicitly authorized a local commit and remote push of this checkpoint
-on experiment/ranking-culling only; no merge into main, PR or photo upload.
-
-
-The archive storage refinement retains only the verified ZIP in human-readable
-YYYYMMDD-archive folders (numbered suffixes for same-day collisions). Temporary
-loose staging is removed after verification and metadata commit, with recovery
-copies retained on failure. Restore and archived preview links read ZIP members;
-asset IDs, historical paths, checksums, dates and lineage remain in SQLite. The
-compact-archive command safely converts older ZIP-plus-loose-file archives and
-updates locations. No schema change is needed. The user's existing archive is
-converted only after ZIP/member and duplicate-file checksums match.
-
-
-Current storage verification: the user's live 22-file archive was checksum-verified
-and converted to Blurry/20261012-archive/deleted-photos.zip, with no individual
-copies retained. The old GUID folder was removed. A pre-conversion SQLite backup
-was saved; asset IDs, dates and parent relationships were verified unchanged.
-The accepted 475-image report was re-rendered without rescanning and preserves
-all 228 review flags. Core tests: 101 passed; experimental tests: 45 passed;
-strict Pyright: zero errors. Private ZIPs, photo data and metadata backups remain
-outside Git. The updated review session uses ZIP-backed archived previews.
-
-## Isolated aesthetics trial — October 12, 2026
-
-The user authorized a native Apple Vision aesthetics experiment using the new
-BestPhotoSamples folder first. Standalone implementation and instructions live
-in `experiments/ranking_culling/aesthetics/`. It uses original-file requests,
-raw native overallScore/isUtility, accepted grouping/focus evidence, conservative
-direct comparisons and blind preference export. All images/results/reports stay
-outside Git. No application behavior or schema changed. Human agreement and
-production integration remain pending; scoring does not authorize culling.
-
-## Aesthetics human review decision — October 12, 2026
-
-After the initial, expanded-set and reduced-pair human reviews, the user accepts
-Apple aesthetic scoring as useful comparison context, explicitly not a true
-winner or best-photo verdict. Personal preferences can prioritize expression,
-mood and intent over a technically preferable image. Preserve human choice,
-side-by-side comparison and separate focus advice. Do not infer component-level
-model explanations from the overall score. This decision does not authorize CLI
-integration, winner badges, automated culling, score weighting or threshold tuning.
-Private evaluation results remain outside Git.
-
-## Authorized alternative aesthetic model trial
-
-The user authorized starting Christoph Schuhmann's CLIP-based predictor on the
-existing samples, with isolated local runtime/model downloads and advisory
-comparisons against human choices and Apple. Implementation remains under the
-standalone aesthetics experiment; no canonical database or application CLI
-changes. A separate Python 3.12 environment preserves the production Python 3.9
-venv. Originals remain read-only and inference runs locally. The next proposed
-rsinema phase could overlay its seven component scores for human/Apple/Schuhmann
-picked images on radar charts, with shared axes and deduplicated picks. No
-rsinema components or charts have been invented or implemented in this phase.
-
-## rsinema test and proposed advisory review design
-
-The user authorized testing rsinema's seven predicted components on the current
-sample set before deciding whether they add useful context. Runtime/model data
-remain outside Git, images are read-only, and existing human/Apple/Schuhmann
-results are reused. The diagnostic report may compare the selected images on
-optional shared-axis radar charts. Production integration remains deferred.
-The user-proposed future design orders group images by Apple score, highlights
-the Schuhmann top, allows a manual human favorite, and optionally charts rsinema
-components for those 2–3 distinct images. No combined true-winner score or
-automatic culling is authorized by this experiment.
-
-## Foundation Models triage plan — October 12, 2026
-
-The revised direction assesses photographic interest for both grouped and solo
-images using common criteria, with group context as a separate comparison.
-Multiple interesting images, maybes, ties and possible technical problems are
-allowed without quotas. Interest and problem warnings can coexist; unmatched
-membership and lower relative preference do not justify culling.
-
-This is planning only pending the laptop OS upgrade. The experiment, capability
-verification, pilot evaluation and deferred metadata investigation are described
-in [FOUNDATION_MODELS_PLAN.md](experiments/ranking_culling/FOUNDATION_MODELS_PLAN.md).
-No Foundation Models implementation or availability claim is made. Production
-integration and metadata writes remain deferred.
-
-
-## Foundation Models pilot execution — October 13, 2026
-
-After upgrading the Mac, the user authorized extended Vision testing followed
-by the standalone Foundation Models experiment, including grouped and solo
-interest assessment. The user accepted the Foundation Models CLI terms directly.
-The verified platform is macOS 27.0.1 / SDK 27.0, A18 Pro, 8 GiB; AFM 3 Core
-reports available with image understanding and guided generation.
-
-Standalone helpers and instructions are in
-[foundation_models/README.md](experiments/ranking_culling/foundation_models/README.md).
-The local Vision pilot tested classification, face capture quality, landmarks,
-people/animals and saliency on 93 active images at two sizes; all seven requests
-succeeded with native-service access. Native image buffers fail in the general
-agent sandbox, so sandbox-only failures are not model findings. The new 27
-iterative segmentation assets were downloaded using Apple's public API.
-
-The Foundation Models one-to-four-image gates, stable IDs, repetitions, reversed
-order and 2048-resolution call succeeded. The pilot compares independent general
-and scene-aware prompts, group contexts and a later separate Vision supplement.
-Private images, model views, reports, human labels and explicit exports remain
-outside Git. All interest/cull recommendations are advisory; no production
-integration, photo mutation, canonical database change or archive action occurs.
-The initial general prompt highlighted all 93 images, so it does not yet reduce
-review workload. Useful interest/scene judgments need human validation.
-
-Metadata checks used disposable synthetic copies only. XMP keywords/ratings
-round-tripped in JPEG/HEIC/TIFF/PNG without decoded-pixel changes; IPTC keywords
-worked on JPEG/TIFF and sidecar creation succeeded. Photos/Photomator application
-interoperability and end-to-end network-disabled daemon inference remain
-unverified. New macOS 27 public Photos rating/keyword APIs are declared in the
-installed SDK; no live-library access or metadata integration was attempted.
-
-
-The first pilot completed 231 attempted Foundation Models calls, 230 valid,
-covering 63 grouped images in 20 groups plus 30 solos. General prompts highlighted
-93/93 images; scene-aware prompts highlighted 92/93 and changed 10 scene labels.
-Group context did not change matched interest labels. Median successful-call
-latency was 6.9 seconds; the full pilot took about 32.9 minutes. Current prompts
-are not recommended for production shortlist integration. Human scene/interest
-accuracy remains unevaluated. A separate six-call Vision supplement had five
-valid responses and one vocabulary failure; a stricter enum schema is tested
-separately and baseline exports are preserved. The new iterative segmentation
-request produced three diagnostic masks after asset setup on the configured
-request. No mask-based focus rule is adopted.
-
-The user clarified pilot human labeling: Worth keeping is boolean; No is
-equivalent to Possible cull Yes. Use one keep decision with an inverse derived
-cull field. Unanswered images remain unjudged; interest is still separate.
-
-## Human pilot review — October 13, 2026
-
-The user supplied a matching label export with 89 answer records. Of 77 explicit
-interest judgments, 17 are interesting, 22 maybe and 38 no clear interest. Both
-individual model conditions highlight all 77, giving 17/77 strong-interest
-precision with no review reduction. Keep decisions are separate: 65 Yes, 23 No;
-blank decisions remain unjudged. Cull No/Yes is derived from Keep Yes/No, never
-from comment text. The labels and verbatim comments are preserved outside Git.
-
-The user clarified that ordinary family/friend/event snapshots may be worth
-keeping for memories without being editing candidates. Some imperfect older
-images may still be restoration candidates. This reinforces separate editing
-interest, observable technical problems and human retention decisions. Generic
-positive descriptions of mood, texture or narrative do not establish editing
-value. Do not assume technical deficiencies are artistic intent. Scene subject
-and context can differ with framing; exact primary-label matches alone do not
-establish classification usefulness.
-
-`foundation_models/evaluate_human.py` validates manifest/image identities,
-keeps unanswered labels out of agreement denominators, preserves notes as data,
-and exports private comparison findings. Human Keep No includes redundancy and
-preference as well as technical issues; it is not a technical-defect ground truth.
-The next proposed experiment is a stricter editing-candidate prompt with concrete
-anchors and the tested enum schema, followed by an independent held-out review.
-No new inference, personalized training, image removal or archive action was
-performed during this human-label evaluation.
-
-## Revised prompt and face-count audit
-
-The user authorized more specific editing-interest language. The new optional
-`foundation_models/prompts/editing_candidates_v2.txt` defines strong editing or
-restoration candidates, plausible maybes and ordinary snapshots separately from
-personal retention; generic mood/texture/narrative praise is insufficient. It
-requires independent technical uncertainty and classification by dominant subject
-and framing. `fm_run.py --prompt-file` records the effective prompt and refuses
-reusing incompatible old prompt gates. The original default/pilot remains intact;
-no new inference was run during this audit.
-
-Against 76 supplied primary scene labels, general Foundation Models labels match
-41 and scene-aware labels match 44. These are literal category matches; subject
-and context overlap. Native Vision emitted broad image-classification labels,
-not a mapped primary category in the user's taxonomy, so comparable native
-category accuracy was not claimed.
-
-The cached Vision human-face audit found boxes on 10/13 user-labeled portraits
-at both sizes. More than one human face was returned on 11/18 group portraits
-at both sizes. Several face/person detections vary with input size, and positive
-counts do not establish complete or correctly located detection. Explicit
-face/head and related people/glasses comments are preserved in the separate
-private overlay audit. Human face boxes do not establish animal-face detection.
-No-face results must not become a sharpness certificate or remove uncertainty.
-
-## Raw face-capture ordering experiment
-
-The latest user instruction supersedes the proposed subject-focus ranking prompt:
-use native raw face-capture quality directly. The user chose the highest detected
-face score per image for multiple faces. The standalone `face_score_report.py`
-uses cached 2048 results, orders each existing group descending, preserves ties
-in source order, and leaves missing/failed scores unassessed. It changes neither
-production focus rules nor previous model results or human labels.
-
-The user deferred a solo exceptional-score cutoff until viewing the distribution.
-The experimental report therefore starts with no solo cutoff/highlight and offers
-an explicit interactive cutoff preview/export. This sample has 36/63 grouped
-images with scores (max 0.738) and 8/30 solos (max 0.425). No threshold was fitted
-or lowered merely to produce highlighted solos. The optional v3 focus/composition
-prompt remains an unused earlier draft, not the selected ranking mechanism.
-
-## Cascade diagnostics: exposure, saliency location and regional detail
-
-The user proposed utility, comparative blur, exposure clipping, facial expression,
-saliency layout and aesthetic tie-breaking experiments. These are not production
-rules or fixed quotas. Installed Vision headers do not expose the suggested
-VNDetectBlurlinessRequest; the user selected face-capture quality and local
-Laplacian-like measurements instead. Face-capture quality remains a broader
-capture-quality signal, using the previously chosen highest face score.
-
-Standalone exposure and saliency-layout diagnostics processed all 93 active pilot
-images using checksum-verified cached views/detections. Exposure measures endpoint
-pixels in 8-bit display views, not RAW clipping or recovery. Saliency measures
-attention and objectness box centers against frame center and thirds, using the
-largest visible box provisionally. Center and thirds produce different attention
-orders in 19/20 groups; that is differentiation, not proof of better selection.
-
-`detail_probe.py` reuses the existing Gaussian1 regional focus implementation on
-all 93 exact 1024 views: global, face, person, animal, attention and objectness
-Laplacian/Tenengrad remain separate. Small regions are unassessed. These single-
-scale diagnostics do not claim the CLI's accepted two-scale relative-focus flags.
-Grain, texture and contrast affect detail scores. No new Foundation Models run,
-expression detection, automatic cull flags or production changes were performed.
-
-The subsequent user request authorized a sample cascade report with ordered
-groups, possible-cull suggestions and solos ranked against the full sample.
-`cascade_probe.swift` now measures aesthetics/utility and Core Image expressions
-on all 93 cached 1024 views. Two utility flags were true in this fresh run; the
-previous 65-image source-based run had none, so results are input/run-specific.
-Core Image returned 69 face features; these are not identities matched to Vision.
-
-`cascade_report.py` generated the private cascade-01 report: 20 groups/63 images,
-30 solos and 29 possible-cull suggestions (16 grouped, 13 solo). Every threshold
-and ordering key is documented in the report, including provisional comparative
-detail, endpoint exposure and anchor-distance flags. No mandatory quotas apply.
-Solos receive their position among all 93 under the same cascade, with full-sample
-detail percentiles. No solo reaches the top aesthetic decile without flags; no
-exceptional face-quality threshold was chosen. Four synthetic policy tests pass.
-This remains experimental and does not change production ranking, metadata,
-human choices, archive selections or originals. No additional Foundation Models
-inference was used.
-
-## Three-tier cached review (October 17)
-
-The user approved Top Pick / Review / Possible Cull and requested regeneration
-using saved scan results. `foundation_models/tier_report.py` consumes the previous
-cascade JSON and pilot thumbnails; it performs no scanning or model inference.
-Top Picks require no technical flags, both detail metrics outside the full-sample
-bottom decile, and either a ≥0.10 face-quality lead over every scored group peer
-or ≥1.5× detail on both metrics over every same-kind group peer. Comparisons
-include all group members, not just survivors. Close groups have no forced pick.
-Solos retain a full-93-image reference and need top-decile aesthetics with no
-technical flags; the exceptional raw face-quality threshold remains unset.
-Composition-only flags become advisories and cannot alone cause Possible Cull.
-
-The private three-tier-01 report contains 5 Top Picks, 60 Review and 28 Possible
-Culls. Of 64 previous retain candidates, 5 promote and 59 stay Review. Image-087
-is the sole cull removal (composition only); no new culls appear. All 93 identities,
-group memberships and underlying measurements are checked against the prior
-report. No solo qualifies as Top Pick. The previous report remains intact.
-Six synthetic tier tests pass; the combined report test selection passes 14 tests.
-Production behavior, human labels, archives and original photographs are unchanged.
-
-## RestorationLab preservation — October 17, 2026
-
-The user authorized committing RestorationLab on experiment/ranking-culling as a
-related but separate tool. It is effectively complete and worth preserving for
-occasional future rolls of old/unprocessed film. Source is under RestorationLab/;
-see [the separate README](RestorationLab/README.md). It is not integrated into the
-main utility's CLI, menu, scan/folder pipeline or installation dependencies.
-
-The selected finish is combined moderate/regional colour correction, SCUNet
-real-PSNR blended 75% with 25% colour input, then gentle luminance sharpening.
-Active runners accept explicit workspace/data paths and reuse the existing isolated
-Python 3.12 environment. Historical calculation and maintenance scripts are retained
-as provenance, not routine runnable entry points. The upstream Apache-2.0 licence
-and architecture are retained.
-
-Private real inputs, restoration manifests/audits, photos, reference images, model
-weights and the runtime remain outside Git in sibling ../RestorationLab, with
-outputs in ../Restored. Its standalone manifests remain separate from jobs.sqlite3.
-No private data or production database is moved by this preservation work.
-
-Verification: help/syntax and existing model-load/finite CPU inference checks passed;
-a synthetic collection audit and changed-source refusal passed. The historical
-collection audit currently cannot finish because a recorded OldScans01 source path
-is missing. No private manifest was rewritten and no photo regenerated. This commit
-authorization does not authorize a push or merge.
+# PhotoUtilities — current project state
+
+Updated October 17, 2026. [README.md](README.md) documents operation;
+[AGENTS.md](AGENTS.md) governs development. Dated decisions and earlier validation
+are preserved in [project history](experiments/PROJECT_HISTORY_20261017.md).
+
+## Status and scope
+
+PhotoUtilities is an offline Mac Python CLI for Canon LiDE 400 sheet acquisition,
+print separation/rectification, conservative visual quarter-turns, related-photo
+grouping, three-tier selection review, optional Polaroid TIFF editing and explicit
+reversible culling. SQLite records jobs, assets, recipes, checksums and lineage.
+
+The user has reviewed and accepted the integrated workflow and report refinements.
+The current implementation is on `experiment/ranking-culling`, not yet merged
+into `main`. The user authorized committing the completed CLI integration, report
+refinements and documentation, then validating an exact committed-code report on
+PhotoSamples. RestorationLab was separately committed as a related tool.
+No push, PR or merge is authorized by this checkpoint request.
+Historical push authorizations applied to specific checkpoints and are not
+standing authorization for future pushes.
+
+## Common workflows and menu
+
+| Menu | Workflow |
+| --- | --- |
+| S — Scan a sheet | Choose Polaroids or ordinary prints, optional Polaroid edits and dry run; acquire, split/rectify, rotate, group and generate tier review. |
+| P — Process a photo folder | Choose recursion, optional Polaroid TIFF edits and dry run; rotate, group and generate tier review. |
+| E — Process an existing sheet | Select a saved master and use the sheet workflow without acquisition. |
+| V — Review a previous run | Enter a completed review job ID for the local interactive session. |
+| U — Restore culled photos | Enter an archive job ID; restore without overwriting and retain the verified ZIP. |
+| M — Maintenance | Scanner diagnostics, history/database, grouping only and standalone TIFF retouching; Back returns to the main menu. |
+| Q — Quit | Exit. |
+
+Successful menu processing offers a local interactive review session. Explicit
+commands include `scan`, `process-sheet`, `process`, `similar`, `retouch`, `review`,
+`restore-archive`, `compact-archive`, `doctor`, `jobs`, `job show/export`, `assets`,
+`recipe show`, `history` and `db check`. See command help for exact flags.
+
+`scan` and `process-sheet` default to Polaroids, three-tier/focus review and visual
+rotation. Polaroids default to the fixed edit recipe; ordinary prints default to
+no edits. `--retouch none` still splits and reviews. `scan --capture-only` saves an
+unsplit master. `process` defaults to no edits and shallow folders; its menu offers
+recursive processing by default. `--open-review` starts the local review command,
+which prints the browser URL. `--no-tier-review` selects focus-only reporting;
+`--no-auto-rotate` uses embedded orientation only. Sheet commands can skip analysis
+with `--no-focus-review`; adding `--find-similar` then requests legacy grouping.
+
+## Image inputs and sheet splitting
+
+Folder analysis supports JPEG, HEIC/HEIF, PNG and single-image TIFF, with at most
+500 images per run. RAW/video/multi-page TIFF ingestion is unsupported. Folder
+processing excludes scanner masters, generated retouches/rotation derivatives and
+Blurry archives. Source pixels are analyzed before optional edits.
+
+Polaroid splitting requires four separated bright bordered cards, rectifies outer
+corners, preserves borders and aligns the wide border to the bottom. Ordinary
+splitting supports 1–20 separated rectangular prints against a uniform contrasting
+background, with clear outer margins. Prints can vary in size. Uncertain boundaries
+stop processing; overlapping/touching layouts and manual corner correction remain
+unsupported. Perfectly aligned touching prints can appear to be one rectangle.
+Ordinary-print physical scanner validation is still pending.
+
+## Visual orientation
+
+Embedded orientation is applied first. Native upright face/body-pose evidence
+compares four quarter-turn candidates; a conservative confidence/margin rule must
+clearly favor one. Uncertain images remain unchanged. There is no horizon
+straightening, forced orientation or automatic landscape/portrait assumption.
+
+Corrected views feed grouping and ranking. Persisted workflows save separately
+verified full-resolution TIFF rotation derivatives under `rotated/`, preserving
+source bytes, sample depth, metadata and SQLite parent/date relationships. Optional
+edits use the upright derivative when one exists. `--no-db` changes analysis views
+only and produces neither rotation derivatives nor archive controls.
+
+Normal reports show applied rotation notes but **no unknown-orientation comment**.
+Stored uncertainty is retained; most visually unconfirmed sample images were
+already upright. The standalone object/attention-below-boundary hypothesis is not
+adopted: on 89 user-reviewed images, five needed rotation, neither method recovered
+any of those five, and each proposed six incorrect rotations. This evaluates the
+specific long-edge boundary/region-box heuristic, not every saliency approach.
+User clarified that unmarked choices in that particular export mean original 0°;
+do not generalize that convention to other unlabeled experiments.
+
+## Grouping and selection policy
+
+Accepted grouping remains Vision revision 2 distance <.45 OR strict SIFT. No hash
+or Czkawka signal participates. Likely/potential sets allow chaining; not every
+pair must match. Similarity is candidate grouping, not identity or retention proof.
+`similar` remains grouping only unless `--focus-review` or `--tier-review` is added.
+
+Three-tier evidence uses native Vision aesthetics/utility, highest face capture
+quality, eye/smile observations, Gaussian1 regional detail, display-view endpoint
+clipping and saliency layout. No Foundation Models language-model prompt or
+external downloaded aesthetic model runs in the CLI. Missing observations remain
+unassessed. Composition alone is advisory and cannot cause Possible Cull. No
+quotas force a winner or rejection. Solos use the full actual batch as reference.
+Exact policies/settings and measurements are retained in SQLite and application
+modules `tiers.py`, `focus.py` and their supporting modules.
+
+Focus review retains the selected Gaussian1 baseline, attention-only fallback,
+10% cohort tail, contrast/scale confirmation and no-semantic object fallback.
+Relative sharper/softer highlights require directly matched photos, comparable
+subject evidence and >=1.5× both focus metrics at both sizes. Focus flags remain
+independent of tiers and never automatically select photos for archiving.
+
+### Accepted report presentation
+
+- Coloured bars above previews: green **Top Pick**, blue **Keep & Review**, orange
+  **Possible Cull**. Internal stored tier `Review` is displayed as Keep & Review.
+- Positive focus warning: **Possible Missed Focus**. Unflagged photos retain
+  `Focus review: No` without an explanatory note or a sharpness certification.
+- **Rank within set: x/y** follows displayed order and that set's size; ungrouped
+  photos use the ungrouped set. Stored full-batch ranks/reference evidence remain.
+- Boxes legend: **Boxes: red - faces, green - people, orange - animals, purple -
+  objects, cyan - attention areas.** Display object/objects rather than objectness;
+  keep native detector keys unchanged.
+- Omit the removed introductory experimental-flags paragraph and unknown-orientation
+  notes. Retain useful positive reasons, subject boxes, original links and controls.
+
+## Preservation, edits and archives
+
+Masters and original photos are immutable. Never silently overwrite an image,
+rename existing originals, auto-delete a photo or infer a retention decision from
+quality, scene labels, tier, notes or ungrouped membership. New derivatives use
+checksums, collision refusal and atomic publication; interrupted work retains state.
+
+The sole edit profile is `polaroid`, applied to the entire 16-bit RGB TIFF including
+its border: sigmoidal contrast `4x35%`, gamma `1.70`, level `5%,98.5%`, gamma `1.09`,
+red-channel gamma `1.04`, sRGB conversion/assignment and 16-bit output. Preserve its
+confirmed recipe and compatible metadata. Generic JPEG/HEIC edits are unsupported.
+
+Only explicit Delete selections followed by confirmation invoke archives. The
+loopback-only tokenized review session allows only job-listed images and rejects
+foreign hosts/origins. Static reports cannot move files. Archive original bytes,
+companions and tracked descendants only after ZIP/member checksum verification;
+protect parent scanner masters. Completed archives retain only verified ZIPs in
+`Blurry/YYYYMMDD-archive` folders with collision suffixes. Restore refuses collisions,
+retains the ZIP and preserves identities/dates/lineage. Recovery evidence survives
+failures; never purge archival ZIPs. `compact-archive` converts older archive layouts.
+
+## Identity and database contract
+
+New scans use initiation-date `YYYYMMDD/{masters,prints,retouches}/` layout. Names
+retain master/print identity: `YYYYMMDD-NNN-master.tif`,
+`YYYYMMDD-NNN-PP-print.tif`, `YYYYMMDD-NNN-PP-retouch.tif`; explicit retouch history
+adds `-v02` etc. Reserve master IDs atomically; failures and deletions consume IDs.
+Polaroids use top-left/top-right/bottom-left/bottom-right order; ordinary prints
+use spatial row order. Resume preserves assigned geometry and print identities.
+Derivatives inherit the source scan date; never guess original capture dates.
+
+The existing schema-v1 `jobs.sqlite3` is the sole routine tracking database,
+by default under `~/Library/Application Support/PhotoUtilities`. Use `--state-dir`
+or `PHOTO_UTILITIES_STATE_DIR`; respect scan-root database bindings and migrated
+counters. Routine metadata belongs in SQLite, not JSON sidecars or a second DB.
+JSON export is explicit; standalone research artifacts may retain experiment
+records outside Git. Legacy metadata import/cleanup is complete and retired.
+Back up SQLite before schema changes; use versioned migrations, transactions,
+foreign keys and indexed lineage. Never reset the DB to bypass a binding error.
+
+## Verification and limits
+
+Recorded integration checks: 113 core tests and strict Pyright passed. Promoted
+arithmetic exactly reproduced the cached 93-image tiers (5/60/28). A fresh run of
+the then-154-image PhotoSamples produced 12 Top Pick, 115 Review, 27 Possible Cull,
+23 groups and 86 ungrouped images, with source hashes unchanged. These are dated
+sample outcomes, not current inventory promises or general accuracy estimates.
+
+Four quarter-turn copies of one portrait recovered upright; an isolated persisted
+run verified tiers, three rotated derivatives, depth/pixels, lineage, integrity,
+foreign keys and checksums. Synthetic tests cover archive/restore, source changes,
+ZIP corruption, collisions, rollback and HTTP protections. No real sample photo was
+archived by these validation runs. Later report wording/layout checks were targeted;
+these recorded checks do not claim a fresh full-suite run for documentation edits.
+
+Direct SANE 600 dpi/48-bit acquisition and a real four-Polaroid split were previously
+verified. The latest acquisition wrapper, ordinary-print hardware acquisition,
+higher DPI settings, calibrated ICC appearance and broad orientation/ranking
+accuracy remain unverified. Similarity comparisons grow quadratically.
+
+## Samples, research and deferred work
+
+Use `../PhotoSamples/` for future focus, group and quality experiments. Inventory
+may change; verify paths and checksums, explicitly record missing inputs and never
+silently substitute similarly named photos. Preserve samples; use isolated state
+and disposable copies for editing/archive tests. Private photos, previews, reports,
+DBs, binaries and model weights stay outside Git and off remote inference services.
+
+Historical focus, aesthetics, Foundation Models, metadata, face-capture and cascade
+experiments remain under `experiments/`; research artifacts are separate from CLI
+features even when committed. Only the selected native measurement/tier policy was
+promoted. Orientation saliency is a rejected standalone fallback trial.
+
+RestorationLab is a related but separate, effectively complete film-restoration
+tool worth preserving for occasional future rolls. Its active runners, historical
+algorithm source, dependency snapshot and licensed SCUNet architecture are versioned
+under `RestorationLab/`; see [its README](RestorationLab/README.md). The existing
+private environment, weights, real input lists, manifests, audits and reference
+photos remain in sibling `../RestorationLab`, with outputs in `../Restored`. Active
+versioned runners accept explicit workspace/data paths; they are not photo-utils
+commands, menu items, pipeline stages or installation dependencies. Preserve the
+standalone restoration manifests rather than adding them to main CLI SQLite.
+No photographs, model weights or runtime environments are committed. Digital
+archival ingestion/RAW support, generic edits, Photos import/export and library
+interoperability, Photomator automation, capture-date overrides, mixed/overlapping
+sheet layouts, manual geometry correction, Shortcuts and watchers remain deferred.

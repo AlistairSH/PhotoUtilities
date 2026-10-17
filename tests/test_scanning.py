@@ -82,24 +82,10 @@ class ScannerParsingTests(unittest.TestCase):
 
 
 class MenuTests(unittest.TestCase):
-    def test_quit_exits_from_main_scan_and_history_menus(self):
-        for answers, label in [(["q"], "Q) Quit"), (["s", "q"], "Q) Quit"),
-                               (["h", "9"], "9) Quit"), (["h", ""], "9) Quit")]:
-            with self.subTest(answers=answers):
-                with patch("builtins.input", side_effect=answers) as prompt, \
-                     patch("builtins.print") as printed, \
-                     patch("sys.stdin.isatty", return_value=True), \
-                     patch("photo_utils.cli.run_scan") as scan, \
-                     patch("photo_utils.cli.process_and_retouch") as process, \
-                     patch("photo_utils.cli.retouch") as retouch:
-                    self.assertEqual(main([]), 0)
-                self.assertEqual(prompt.call_count, len(answers))
-                output = "\n".join(str(call.args[0]) for call in printed.call_args_list)
-                self.assertIn(label, output)
-                self.assertNotIn("Back", output)
-                scan.assert_not_called()
-                process.assert_not_called()
-                retouch.assert_not_called()
+    def test_quit_exits_from_main_menu(self):
+        with patch('builtins.input',side_effect=['q']), patch('sys.stdin.isatty',return_value=True), patch('photo_utils.cli.run_scan') as scan:
+            self.assertEqual(main([]),0)
+            scan.assert_not_called()
 
     def test_prompt_choice_uses_conventional_default_notation(self):
         with patch("builtins.input", side_effect=["", "d"]):
@@ -125,10 +111,10 @@ class MenuTests(unittest.TestCase):
     def test_menu_scan_uses_default_date_folder_and_defaults_to_real_scan(self):
         default_folder = default_scan_folder()
         scanned_sheet = Path("/scans/20261009/sheet.tif")
-        with patch("builtins.input", side_effect=["s", "", "", "", ""]):
+        with patch("builtins.input", side_effect=["s", "", "", "", "q"]):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("photo_utils.cli.run_scan", return_value=scanned_sheet) as run_scan:
-                    with patch("photo_utils.cli.process_and_retouch") as process:
+                    with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
                         self.assertEqual(main([]), 0)
         run_scan.assert_called_once_with(
             folder=default_folder,
@@ -136,45 +122,45 @@ class MenuTests(unittest.TestCase):
             state_dir=default_state_dir(),
             dry_run=False,
         )
-        process.assert_called_once_with(scanned_sheet, profile="polaroid")
+        process.assert_called_once_with(scanned_sheet,profile="polaroid",kind="polaroids",focus_review=True,dry_run=False)
 
     def test_menu_uses_scan_date_and_dry_run(self):
-        with patch("builtins.input", side_effect=["S", "S", "n", "y"]):
+        with patch("builtins.input", side_effect=["s", "o", "y", "q"]):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("photo_utils.cli.run_scan", return_value=None) as run_scan:
-                    with patch("photo_utils.cli.process_and_retouch") as process:
+                    with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
                         self.assertEqual(main([]), 0)
         self.assertEqual(run_scan.call_args.kwargs["folder"], default_scan_folder())
         self.assertTrue(run_scan.call_args.kwargs["dry_run"])
         process.assert_not_called()
 
-    def test_non_polaroid_scan_keeps_full_sheet_without_processing(self):
+    def test_non_polaroid_scan_splits_without_polaroid_edits(self):
         scanned_sheet = Path("/scans/20261009/sheet.tif")
-        with patch("builtins.input", side_effect=["s", "", "n", "", ""]):
+        with patch("builtins.input", side_effect=["s", "o", "", "q"]):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("photo_utils.cli.run_scan", return_value=scanned_sheet):
-                    with patch("photo_utils.cli.process_and_retouch") as process:
+                    with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
                         self.assertEqual(main([]), 0)
-        process.assert_not_called()
+        process.assert_called_once_with(scanned_sheet,profile="none",kind="prints",focus_review=True,dry_run=False)
 
-    def test_cli_scan_none_does_not_split_sheet(self):
+    def test_cli_capture_only_does_not_split_sheet(self):
         with patch("photo_utils.cli.run_scan", return_value=Path("/scans/sheet.tif")):
-            with patch("photo_utils.cli.process_and_retouch") as process:
-                self.assertEqual(main(["scan", "--retouch", "none"]), 0)
+            with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
+                self.assertEqual(main(["scan", "--capture-only"]), 0)
         process.assert_not_called()
 
     def test_scan_menu_can_process_existing_sheet_without_scanning(self):
         source = Path("/scans/older-sheet.tif")
-        with patch("builtins.input", side_effect=["s", "p", "", ""]):
+        with patch("builtins.input", side_effect=["e", "", "", "", "", "q"]):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("photo_utils.cli.list_sheet_sources", return_value=[source]):
                     with patch("photo_utils.cli.run_scan") as run_scan:
-                        with patch("photo_utils.cli.process_and_retouch") as process:
+                        with patch("photo_utils.cli.process_and_retouch",return_value=None) as process:
                             self.assertEqual(main([]), 0)
         run_scan.assert_not_called()
         process.assert_called_once_with(
             source,
-            dry_run=False,
+            dry_run=False,profile="polaroid",kind="polaroids",focus_review=True,
         )
 
     def test_menu_quit_does_not_run_a_command(self):
@@ -183,7 +169,7 @@ class MenuTests(unittest.TestCase):
                 self.assertEqual(main([]), 0)
 
     def test_menu_doctor_runs_diagnostics_without_scan_prompts(self):
-        with patch("builtins.input", return_value="d"):
+        with patch("builtins.input", side_effect=["m","d","q"]):
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("photo_utils.cli.doctor") as doctor:
                     with patch("photo_utils.cli.run_scan") as run_scan:

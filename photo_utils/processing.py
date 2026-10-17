@@ -54,6 +54,7 @@ def _read_source(source: Path) -> Tuple[NDArray[Any], dict[str, Any]]:
     try:
         # This tifffile release lacks complete page/tag type annotations.
         with cast(Any, tifffile.TiffFile(source)) as image_file:
+            if len(image_file.pages) != 1: raise ProcessingError("Scanner source must contain exactly one image page.")
             page = image_file.pages[0]
             image: NDArray[Any] = page.asarray()
             tags = page.tags
@@ -75,7 +76,7 @@ def _read_source(source: Path) -> Tuple[NDArray[Any], dict[str, Any]]:
                         float(y_resolution.value[0]) / float(y_resolution.value[1]) * 2.54,
                     )
                     metadata["resolution_unit"] = "CENTIMETER"
-            profile = tags.get("ICCProfile")
+            profile = tags.get("InterColorProfile") or tags.get("ICCProfile")
             if profile:
                 metadata["icc_profile"] = profile.value
     except (OSError, tifffile.TiffFileError, ValueError) as exc:
@@ -122,7 +123,7 @@ def _ordered_corners(points: NDArray[Any]) -> NDArray[Any]:
     return ordered
 
 
-def detect_cards(image: NDArray[Any]) -> list[CardRegion]:
+def detect_cards(image: NDArray[Any], kind: str = "polaroids") -> list[CardRegion]:
     height, width = image.shape[:2]
     scale = min(1.0, DETECTION_MAX_DIMENSION / float(max(height, width)))
     detection_width = max(1, int(round(width * scale)))
@@ -132,9 +133,14 @@ def detect_cards(image: NDArray[Any]) -> list[CardRegion]:
         (detection_width, detection_height),
         interpolation=cv2.INTER_AREA,
     )
-    mask = cv2.threshold(
-        small, DETECTION_THRESHOLD, 255, cv2.THRESH_BINARY
-    )[1]
+    if kind == 'prints':
+        edges = np.concatenate((small[0,:],small[-1,:],small[:,0],small[:,-1]))
+        background = float(np.median(edges))
+        if float(np.percentile(np.abs(edges.astype(float)-background),90)) > 20:
+            raise ProcessingError('Scanner background is not uniform; leave a clear margin around separated prints.')
+        mask = (np.abs(small.astype(float)-background)>25).astype(np.uint8)*255
+    else:
+        mask = cv2.threshold(small, DETECTION_THRESHOLD, 255, cv2.THRESH_BINARY)[1]
     mask = cv2.morphologyEx(
         mask,
         cv2.MORPH_CLOSE,
@@ -153,11 +159,16 @@ def detect_cards(image: NDArray[Any]) -> list[CardRegion]:
         ):
             continue
         aspect = box_width / float(box_height)
-        if not 0.5 <= aspect <= 2.0:
+        if not (0.25 if kind == "prints" else 0.5) <= aspect <= (4.0 if kind == "prints" else 2.0):
             continue
 
         perimeter = cv2.arcLength(contour, True)
         polygon = cv2.approxPolyDP(contour, 0.015 * perimeter, True)
+        rectangle = cv2.minAreaRect(contour)
+        rectangular_area = rectangle[1][0]*rectangle[1][1]
+        if kind == "prints" and (rectangular_area <= 0 or area/rectangular_area < .88 or area > frame_area*.85
+                or _x <= 2 or _y <= 2 or _x+box_width >= detection_width-2 or _y+box_height >= detection_height-2):
+            raise ProcessingError("Ambiguous or touching print boundary; separate prints against a contrasting background.")
         if len(polygon) == 4 and cv2.isContourConvex(polygon):
             points = polygon.reshape(4, 2).astype(np.float32)
         else:
@@ -185,6 +196,17 @@ def detect_cards(image: NDArray[Any]) -> list[CardRegion]:
             )
         )
 
+    if kind == 'prints':
+        if not 1 <= len(candidates) <= 20:
+            raise ProcessingError('Expected 1–20 separated rectangular prints; detected '+str(len(candidates))+'. Use a contrasting background.')
+        # Stable spatial order, grouping centers into rows using print height.
+        candidates.sort(key=lambda card:(card.center[1],card.center[0]))
+        rows: list[list[CardRegion]] = []
+        for card in candidates:
+            row = next((r for r in rows if abs(r[0].center[1]-card.center[1]) < .35*min(r[0].bounds[3]-r[0].bounds[1],card.bounds[3]-card.bounds[1])),None)
+            if row is None: rows.append([card])
+            else: row.append(card)
+        return [card for row in rows for card in sorted(row,key=lambda c:c.center[0])]
     if len(candidates) != EXPECTED_CARDS:
         raise ProcessingError(
             "Expected exactly four separated print borders; detected {}. "
@@ -263,11 +285,15 @@ def _thickest_border(image: NDArray[Any]) -> Tuple[str, float]:
     return ranked[0][0], confidence
 
 
-def plan_cards(image: NDArray[Any]) -> list[CardPlan]:
+def plan_cards(image: NDArray[Any], kind: str = "polaroids") -> list[CardPlan]:
     plans: list[CardPlan] = []
     rotations_to_bottom = {"bottom": 0, "left": 1, "top": 2, "right": 3}
-    for region in detect_cards(image):
+    for region in (detect_cards(image) if kind == "polaroids" else detect_cards(image,kind)):
         warped = _warp_card(image, region)
+        if kind == 'prints':
+            height,width=warped.shape[:2]
+            plans.append(CardPlan(region,'not applicable',0,width,height,0.0))
+            continue
         side, confidence = _thickest_border(warped)
         rotation = rotations_to_bottom[side]
         height, width = warped.shape[:2]
@@ -304,15 +330,15 @@ def _output_resolution(metadata: dict[str, Any]) -> dict[str, Any]:
     return options
 
 
-def _provenance_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+def _provenance_metadata(metadata: dict[str, Any], kind: str = "polaroids") -> dict[str, Any]:
     return {
         "manifest_version": MANIFEST_VERSION,
         "parameters": {
             "detection_max_dimension": DETECTION_MAX_DIMENSION,
             "detection_threshold_8bit": DETECTION_THRESHOLD,
-            "expected_cards": EXPECTED_CARDS,
+            "expected_cards": EXPECTED_CARDS if kind == "polaroids" else None,
             "interpolation": "cubic",
-            "wide_border_alignment": "bottom",
+            "wide_border_alignment": "bottom" if kind == "polaroids" else None,
         },
         "backend_versions": {
             "numpy": np.__version__,
@@ -342,6 +368,7 @@ def _validate_existing_job(
     plans: Sequence[CardPlan],
     names: Sequence[str] = OUTPUT_NAMES,
     manifest_name: str = "manifest.json",
+    kind: str = "polaroids",
 ) -> Optional[dict[str, Any]]:
     manifest_path = output_dir / manifest_name
     if not output_dir.exists() or (manifest_name != "manifest.json" and not database.record_exists(manifest_path)):
@@ -353,7 +380,7 @@ def _validate_existing_job(
         )
     manifest = _load_manifest(manifest_path)
     if (
-        manifest.get("algorithm") != ALGORITHM_VERSION
+        manifest.get("algorithm") != (ALGORITHM_VERSION if kind == "polaroids" else "ordinary-print-sheet-v1")
         or manifest.get("source_path") != str(source)
         or manifest.get("source_sha256") != source_sha256
     ):
@@ -420,6 +447,7 @@ def process_sheet(
     output_dir: Optional[Path] = None,
     dry_run: bool = False,
     state_dir: Optional[Path] = None,
+    kind: str = "polaroids",
 ) -> list[Path]:
     source = source_path.expanduser().resolve()
     if not source.is_file():
@@ -429,7 +457,8 @@ def process_sheet(
     except OSError as exc:
         raise ProcessingError("Could not checksum source TIFF {}: {}".format(source, exc)) from exc
     image, metadata = _read_source(source)
-    cards = plan_cards(image)
+    if kind not in ("polaroids","prints"): raise ProcessingError("Unknown sheet kind")
+    cards = plan_cards(image) if kind == "polaroids" else plan_cards(image,kind)
     try:
         source_unchanged = sha256_file(source) == source_digest
     except OSError as exc:
@@ -443,7 +472,7 @@ def process_sheet(
     if not parsed and not legacy_job:
         parsed, day = existing_master(source, dry_run)
     readable_id = master_id(parsed[0], parsed[1]) if parsed else None
-    names = tuple(f"{readable_id}-{index:02d}-print.tif" for index in range(1, 5)) if parsed else OUTPUT_NAMES
+    names = tuple(f"{readable_id}-{index:02d}-print.tif" for index in range(1, len(cards)+1)) if parsed else tuple(f"print-{index:02d}.tif" for index in range(1,len(cards)+1))
     manifest_name = f"{readable_id}-prints.manifest.json" if parsed else "manifest.json"
     destination = (
         output_dir.expanduser().resolve()
@@ -454,8 +483,8 @@ def process_sheet(
         raise ProcessingError("Output directory must not contain the source TIFF.")
     print("Source: {}".format(source))
     print(
-        "Detected {} Polaroids; preserving {}-bit sample depth and full print borders."
-        .format(len(cards), image.dtype.itemsize * 8)
+        "Detected {} {} prints; preserving {}-bit sample depth."
+        .format(len(cards), kind, image.dtype.itemsize * 8)
     )
     print("Output folder: {}".format(destination))
     for index, plan in enumerate(cards, 1):
@@ -465,7 +494,7 @@ def process_sheet(
         )
     source_digest = sha256_file(source)
     manifest_path = destination / manifest_name
-    existing = _validate_existing_job(destination, source, source_digest, cards, names, manifest_name)
+    existing = _validate_existing_job(destination, source, source_digest, cards, names, manifest_name, kind)
     if dry_run:
         if existing and existing.get("status") == "completed":
             print("The matching output folder is already complete and checksum-verified.")
@@ -477,7 +506,7 @@ def process_sheet(
         return []
 
     if existing and existing.get("status") == "completed":
-        existing.update(_provenance_metadata(metadata))
+        existing.update(_provenance_metadata(metadata,kind))
         existing.setdefault("created_at", datetime.now(timezone.utc).isoformat())
         _atomic_write_manifest(manifest_path, existing)
         print("This sheet is already processed; verified derivatives were left unchanged.")
@@ -496,8 +525,9 @@ def process_sheet(
             "job_id": str(uuid.uuid4()),
             "status": "running",
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "algorithm": ALGORITHM_VERSION,
-            **_provenance_metadata(metadata),
+            "algorithm": ALGORITHM_VERSION if kind == "polaroids" else "ordinary-print-sheet-v1",
+            "sheet_kind":kind,
+            **_provenance_metadata(metadata,kind),
             **({"scan_date": parsed[0], "master_id": readable_id, "parent_id": readable_id, "processing_stage": "print"} if parsed else {}),
             "output_location": str(destination),
             "source_path": str(source),
@@ -531,6 +561,9 @@ def process_sheet(
         cards = ordered
         manifest["status"] = "running"
         manifest.pop("error", None)
+    if kind == 'prints':
+        manifest['parameters'].update(expected_cards=None, detection_threshold_8bit=None,
+            segmentation='difference >25 from uniform border median; rectangularity >=.88',wide_border_alignment=None)
     _atomic_write_manifest(manifest_path, manifest)
 
     outputs: list[Path] = []
