@@ -322,3 +322,183 @@ verification, pilot evaluation and deferred metadata investigation are described
 in [FOUNDATION_MODELS_PLAN.md](experiments/ranking_culling/FOUNDATION_MODELS_PLAN.md).
 No Foundation Models implementation or availability claim is made. Production
 integration and metadata writes remain deferred.
+
+
+## Foundation Models pilot execution — October 13, 2026
+
+After upgrading the Mac, the user authorized extended Vision testing followed
+by the standalone Foundation Models experiment, including grouped and solo
+interest assessment. The user accepted the Foundation Models CLI terms directly.
+The verified platform is macOS 27.0.1 / SDK 27.0, A18 Pro, 8 GiB; AFM 3 Core
+reports available with image understanding and guided generation.
+
+Standalone helpers and instructions are in
+[foundation_models/README.md](experiments/ranking_culling/foundation_models/README.md).
+The local Vision pilot tested classification, face capture quality, landmarks,
+people/animals and saliency on 93 active images at two sizes; all seven requests
+succeeded with native-service access. Native image buffers fail in the general
+agent sandbox, so sandbox-only failures are not model findings. The new 27
+iterative segmentation assets were downloaded using Apple's public API.
+
+The Foundation Models one-to-four-image gates, stable IDs, repetitions, reversed
+order and 2048-resolution call succeeded. The pilot compares independent general
+and scene-aware prompts, group contexts and a later separate Vision supplement.
+Private images, model views, reports, human labels and explicit exports remain
+outside Git. All interest/cull recommendations are advisory; no production
+integration, photo mutation, canonical database change or archive action occurs.
+The initial general prompt highlighted all 93 images, so it does not yet reduce
+review workload. Useful interest/scene judgments need human validation.
+
+Metadata checks used disposable synthetic copies only. XMP keywords/ratings
+round-tripped in JPEG/HEIC/TIFF/PNG without decoded-pixel changes; IPTC keywords
+worked on JPEG/TIFF and sidecar creation succeeded. Photos/Photomator application
+interoperability and end-to-end network-disabled daemon inference remain
+unverified. New macOS 27 public Photos rating/keyword APIs are declared in the
+installed SDK; no live-library access or metadata integration was attempted.
+
+
+The first pilot completed 231 attempted Foundation Models calls, 230 valid,
+covering 63 grouped images in 20 groups plus 30 solos. General prompts highlighted
+93/93 images; scene-aware prompts highlighted 92/93 and changed 10 scene labels.
+Group context did not change matched interest labels. Median successful-call
+latency was 6.9 seconds; the full pilot took about 32.9 minutes. Current prompts
+are not recommended for production shortlist integration. Human scene/interest
+accuracy remains unevaluated. A separate six-call Vision supplement had five
+valid responses and one vocabulary failure; a stricter enum schema is tested
+separately and baseline exports are preserved. The new iterative segmentation
+request produced three diagnostic masks after asset setup on the configured
+request. No mask-based focus rule is adopted.
+
+The user clarified pilot human labeling: Worth keeping is boolean; No is
+equivalent to Possible cull Yes. Use one keep decision with an inverse derived
+cull field. Unanswered images remain unjudged; interest is still separate.
+
+## Human pilot review — October 13, 2026
+
+The user supplied a matching label export with 89 answer records. Of 77 explicit
+interest judgments, 17 are interesting, 22 maybe and 38 no clear interest. Both
+individual model conditions highlight all 77, giving 17/77 strong-interest
+precision with no review reduction. Keep decisions are separate: 65 Yes, 23 No;
+blank decisions remain unjudged. Cull No/Yes is derived from Keep Yes/No, never
+from comment text. The labels and verbatim comments are preserved outside Git.
+
+The user clarified that ordinary family/friend/event snapshots may be worth
+keeping for memories without being editing candidates. Some imperfect older
+images may still be restoration candidates. This reinforces separate editing
+interest, observable technical problems and human retention decisions. Generic
+positive descriptions of mood, texture or narrative do not establish editing
+value. Do not assume technical deficiencies are artistic intent. Scene subject
+and context can differ with framing; exact primary-label matches alone do not
+establish classification usefulness.
+
+`foundation_models/evaluate_human.py` validates manifest/image identities,
+keeps unanswered labels out of agreement denominators, preserves notes as data,
+and exports private comparison findings. Human Keep No includes redundancy and
+preference as well as technical issues; it is not a technical-defect ground truth.
+The next proposed experiment is a stricter editing-candidate prompt with concrete
+anchors and the tested enum schema, followed by an independent held-out review.
+No new inference, personalized training, image removal or archive action was
+performed during this human-label evaluation.
+
+## Revised prompt and face-count audit
+
+The user authorized more specific editing-interest language. The new optional
+`foundation_models/prompts/editing_candidates_v2.txt` defines strong editing or
+restoration candidates, plausible maybes and ordinary snapshots separately from
+personal retention; generic mood/texture/narrative praise is insufficient. It
+requires independent technical uncertainty and classification by dominant subject
+and framing. `fm_run.py --prompt-file` records the effective prompt and refuses
+reusing incompatible old prompt gates. The original default/pilot remains intact;
+no new inference was run during this audit.
+
+Against 76 supplied primary scene labels, general Foundation Models labels match
+41 and scene-aware labels match 44. These are literal category matches; subject
+and context overlap. Native Vision emitted broad image-classification labels,
+not a mapped primary category in the user's taxonomy, so comparable native
+category accuracy was not claimed.
+
+The cached Vision human-face audit found boxes on 10/13 user-labeled portraits
+at both sizes. More than one human face was returned on 11/18 group portraits
+at both sizes. Several face/person detections vary with input size, and positive
+counts do not establish complete or correctly located detection. Explicit
+face/head and related people/glasses comments are preserved in the separate
+private overlay audit. Human face boxes do not establish animal-face detection.
+No-face results must not become a sharpness certificate or remove uncertainty.
+
+## Raw face-capture ordering experiment
+
+The latest user instruction supersedes the proposed subject-focus ranking prompt:
+use native raw face-capture quality directly. The user chose the highest detected
+face score per image for multiple faces. The standalone `face_score_report.py`
+uses cached 2048 results, orders each existing group descending, preserves ties
+in source order, and leaves missing/failed scores unassessed. It changes neither
+production focus rules nor previous model results or human labels.
+
+The user deferred a solo exceptional-score cutoff until viewing the distribution.
+The experimental report therefore starts with no solo cutoff/highlight and offers
+an explicit interactive cutoff preview/export. This sample has 36/63 grouped
+images with scores (max 0.738) and 8/30 solos (max 0.425). No threshold was fitted
+or lowered merely to produce highlighted solos. The optional v3 focus/composition
+prompt remains an unused earlier draft, not the selected ranking mechanism.
+
+## Cascade diagnostics: exposure, saliency location and regional detail
+
+The user proposed utility, comparative blur, exposure clipping, facial expression,
+saliency layout and aesthetic tie-breaking experiments. These are not production
+rules or fixed quotas. Installed Vision headers do not expose the suggested
+VNDetectBlurlinessRequest; the user selected face-capture quality and local
+Laplacian-like measurements instead. Face-capture quality remains a broader
+capture-quality signal, using the previously chosen highest face score.
+
+Standalone exposure and saliency-layout diagnostics processed all 93 active pilot
+images using checksum-verified cached views/detections. Exposure measures endpoint
+pixels in 8-bit display views, not RAW clipping or recovery. Saliency measures
+attention and objectness box centers against frame center and thirds, using the
+largest visible box provisionally. Center and thirds produce different attention
+orders in 19/20 groups; that is differentiation, not proof of better selection.
+
+`detail_probe.py` reuses the existing Gaussian1 regional focus implementation on
+all 93 exact 1024 views: global, face, person, animal, attention and objectness
+Laplacian/Tenengrad remain separate. Small regions are unassessed. These single-
+scale diagnostics do not claim the CLI's accepted two-scale relative-focus flags.
+Grain, texture and contrast affect detail scores. No new Foundation Models run,
+expression detection, automatic cull flags or production changes were performed.
+
+The subsequent user request authorized a sample cascade report with ordered
+groups, possible-cull suggestions and solos ranked against the full sample.
+`cascade_probe.swift` now measures aesthetics/utility and Core Image expressions
+on all 93 cached 1024 views. Two utility flags were true in this fresh run; the
+previous 65-image source-based run had none, so results are input/run-specific.
+Core Image returned 69 face features; these are not identities matched to Vision.
+
+`cascade_report.py` generated the private cascade-01 report: 20 groups/63 images,
+30 solos and 29 possible-cull suggestions (16 grouped, 13 solo). Every threshold
+and ordering key is documented in the report, including provisional comparative
+detail, endpoint exposure and anchor-distance flags. No mandatory quotas apply.
+Solos receive their position among all 93 under the same cascade, with full-sample
+detail percentiles. No solo reaches the top aesthetic decile without flags; no
+exceptional face-quality threshold was chosen. Four synthetic policy tests pass.
+This remains experimental and does not change production ranking, metadata,
+human choices, archive selections or originals. No additional Foundation Models
+inference was used.
+
+## Three-tier cached review (October 17)
+
+The user approved Top Pick / Review / Possible Cull and requested regeneration
+using saved scan results. `foundation_models/tier_report.py` consumes the previous
+cascade JSON and pilot thumbnails; it performs no scanning or model inference.
+Top Picks require no technical flags, both detail metrics outside the full-sample
+bottom decile, and either a ≥0.10 face-quality lead over every scored group peer
+or ≥1.5× detail on both metrics over every same-kind group peer. Comparisons
+include all group members, not just survivors. Close groups have no forced pick.
+Solos retain a full-93-image reference and need top-decile aesthetics with no
+technical flags; the exceptional raw face-quality threshold remains unset.
+Composition-only flags become advisories and cannot alone cause Possible Cull.
+
+The private three-tier-01 report contains 5 Top Picks, 60 Review and 28 Possible
+Culls. Of 64 previous retain candidates, 5 promote and 59 stay Review. Image-087
+is the sole cull removal (composition only); no new culls appear. All 93 identities,
+group memberships and underlying measurements are checked against the prior
+report. No solo qualifies as Top Pick. The previous report remains intact.
+Six synthetic tier tests pass; the combined report test selection passes 14 tests.
+Production behavior, human labels, archives and original photographs are unchanged.
