@@ -55,7 +55,7 @@ do {
         guard let writer = CGImageDestinationCreateWithURL(source as CFURL,type.identifier as CFString,1,nil) else { throw CocoaError(.fileWriteUnknown) }
         CGImageDestinationAddImage(writer,context.makeImage()!,[
             kCGImagePropertyOrientation:6,
-            kCGImagePropertyExifDictionary:[kCGImagePropertyExifDateTimeOriginal:"2020:01:02 03:04:05"],
+            kCGImagePropertyExifDictionary:[kCGImagePropertyExifDateTimeOriginal:"2020:01:02 03:04:05",kCGImagePropertyExifColorSpace:65535],
             kCGImagePropertyIPTCDictionary:[kCGImagePropertyIPTCKeywords:["native-test"]]
         ] as CFDictionary)
         guard CGImageDestinationFinalize(writer) else { throw CocoaError(.fileWriteUnknown) }
@@ -66,6 +66,7 @@ do {
             let props = try ImageHandling.properties(dest)
             let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
             try check(exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String == "2020:01:02 03:04:05","Capture date on derivative")
+            try check((exif?[kCGImagePropertyExifColorSpace as String] as? NSNumber)?.intValue == 1,"Derivative EXIF sRGB tag")
             try check((props[kCGImagePropertyDepth as String] as? NSNumber)?.intValue == 8,"Explicit display derivative depth")
         }
         for angle in [0.0,90,180,270,3] {

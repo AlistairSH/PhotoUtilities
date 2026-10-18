@@ -44,6 +44,7 @@ public enum ImageHandling {
         // Retain supported capture/GPS/IPTC properties, but normalize geometry.
         // ImageIO does not promise arbitrary ExifTool tag or XMP round-trip parity.
         var exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
+        exif[kCGImagePropertyExifColorSpace as String] = 1 // Rendered sRGB, regardless of source tag.
         exif[kCGImagePropertyExifPixelXDimension as String] = rendered.width
         exif[kCGImagePropertyExifPixelYDimension as String] = rendered.height
         exif.removeValue(forKey:kCGImagePropertyExifMakerNote as String)
