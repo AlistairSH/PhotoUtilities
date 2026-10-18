@@ -71,3 +71,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Filtering references
+
+The edge-boundary investigation additionally consulted the pinned
+[OpenCV 4.11 separable filters](https://github.com/opencv/opencv/blob/4.11.0/modules/imgproc/src/filter.simd.hpp)
+and [magnitude arithmetic](https://github.com/opencv/opencv/blob/4.11.0/modules/core/src/mathfuncs_core.simd.hpp)
+to identify accumulation order. The native implementation uses Swift floating-point
+operations, not linked OpenCV code. Accelerate calls are compiled against the local
+Apple SDK; no external package is introduced.

@@ -5,7 +5,8 @@ Unmerged research on `experiment/apple-native`, branched from `8809e81` on
 are unchanged. Nothing here moves, archives or deletes photos. No cloud inference,
 Photos-library access, external Swift dependencies or model download.
 
-Start with the latest [decision-parity report](DECISION_PARITY.md),
+Start with the latest [edge correction and performance report](EDGE_PERFORMANCE.md),
+the [decision-parity report](DECISION_PARITY.md),
 [dependency audit](AUDIT.md), initial [comparison findings](FINDINGS.md) and
 [migration recommendation](MIGRATION.md). The selected implementation investigates
 native image handling, global/regional focus measurements, Vision-only grouping,
@@ -60,12 +61,15 @@ SIFT is deliberately absent from this ablation and remains in production. Treat
 nonzero exit, missing rows or missing completion as failed analysis. Partial
 stdout is not a completed review. At most 500 explicit paths are allowed.
 
-The scalar Swift focus port uses the same derivative kernels, normalization,
+The Swift focus port uses the same derivative kernels, normalization,
 reflect101 smoothing, 1-pixel metric guards, 3-pixel outside guards, population
-variance, interpolated p90 and minimum 100 pixels. The current port preserves the pinned OpenCV 8-bit Gaussian kernel and integer
-rounding; float32 edge extraction still has small numerical differences, including
-one 50-versus-48 edge-count boundary case. No thresholds were retuned. See the
-decision-parity report before attempting Accelerate optimization or integration.
+variance, interpolated p90 and minimum 100 pixels. It preserves the pinned OpenCV
+8-bit Gaussian kernel and integer rounding. Corrected float32 edge arithmetic
+resolves the observed 48-versus-50 regional boundary without retuning thresholds.
+Accelerate reductions and partial p90 selection are the default; `native-measure`
+retains `--backend scalar` for reference. The 151-image replay preserves every
+recommendation, with a measured speed improvement and a small remaining memory
+increase. See [the performance report](EDGE_PERFORMANCE.md) for scope and limits.
 
 ## Comparative tests
 

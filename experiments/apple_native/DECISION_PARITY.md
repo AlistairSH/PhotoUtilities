@@ -1,5 +1,9 @@
 # Swift focus and ranking decision parity — October 18, 2026
 
+Follow-up: [edge correction and performance](EDGE_PERFORMANCE.md) resolves the
+regional boundary discussed below and supersedes the scalar timing results.
+The rest of this report records the earlier gate.
+
 **The 151-image decision gate passes.** With accepted grouping and Vision evidence
 held constant, replacing the Python measurements and decision rules with the Swift
 implementation changes **zero focus recommendations, explanations, sharper/softer

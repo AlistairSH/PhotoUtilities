@@ -1,6 +1,6 @@
 # Migration recommendation
 
-This experiment does not authorize integration or dependency removal. Current decision validation is documented in [DECISION_PARITY.md](DECISION_PARITY.md).
+This experiment does not authorize integration or dependency removal. Current validation is documented in [EDGE_PERFORMANCE.md](EDGE_PERFORMANCE.md) and [DECISION_PARITY.md](DECISION_PARITY.md).
 The 475-image workflow is not yet reproducible entirely in native Swift with accepted behavioral
 parity. Keep the accepted pipeline as the working implementation.
 
@@ -13,8 +13,8 @@ parity. Keep the accepted pipeline as the working implementation.
 | EXIF inspection and capture-date export | Replace with limitations | ImageIO property read and capture-date round trips tested. Maker notes deliberately removed, pixel/orientation tags normalized. No arbitrary metadata fidelity guarantee. |
 | ICC, high-depth TIFF, RAW and XMP/ratings/keywords | Requires further experimentation | Real RAW and digital TIFF corpus absent; ICC converted to display sRGB. XMP packets, manufacturer tags and consumer-specific discovery not validated. Retain ExifTool where complete metadata interoperability is required. |
 | Gaussian1 global/regional focus metrics | Replace with limitations | Pinned grayscale/Gaussian rounding corrected; 302-view native replay preserves all current recommendations and regional mask counts. Larger-corpus/device validation remains open. |
-| Edge extraction and subject evidence | Requires further experimentation | Complete native extractor preserves current recommendations, but one face has 48 versus 50 usable edges. Resolve/test that specific sample-count boundary before integration. |
-| Full focus decisions and sharper/softer recommendations | Ready to replace the policy implementation with equivalent inputs | Full Swift port agrees on 151 frozen-image decisions/reasons and 106 synthetic cases. Native pixel replay also preserves all recommendations. Production integration is separate; edge-boundary limitation still applies. |
+| Edge extraction and subject evidence | Replace with limitations | Corrected arithmetic resolves the 48-versus-50 boundary; all 302 regional sufficiency assessments and global edge flags agree. Two global profile counts still differ slightly. Larger-corpus/device validation remains open. |
+| Full focus decisions and sharper/softer recommendations | Ready to replace the policy implementation with equivalent inputs | Full Swift port agrees on 151 frozen-image decisions/reasons and 106 synthetic cases. Native pixel replay also preserves all recommendations. Production integration is separate; larger-corpus/device validation remains open. |
 | SIFT supplementation | Retain existing implementation | Vision-only loses baseline links and a group in the current corpus; historical reviewed positives also need SIFT. No cutoff changes justified. |
 | Native homographic alternative | Requires further experimentation | Probe returns a matrix, but no mutual inlier count/fraction/hull coverage equivalent. Needs cropped/reframed/burst positives and composition-difference negatives, and a validated photometric residual/overlap gate before use. |
 | Face/body/animal/saliency and native quality evidence | Replace with limitations | Existing native evidence reused, including availability failure for unsupported aesthetics. No confidence-to-quality or aesthetic-to-merit equivalence assumed. iOS/iPadOS validation still needed. |
@@ -25,9 +25,12 @@ parity. Keep the accepted pipeline as the working implementation.
 | SQLite/history | Retain existing implementation | No portability blocker demonstrated; no experiment DB, schema or historical record changes. |
 | Scanner capture, splitting, fixed retouch and ICC | Retain existing implementation | Explicitly outside scope; no changes. |
 
-Next gate: investigate the observed 50-versus-48 face-edge boundary without changing
-thresholds, then benchmark Accelerate against the scalar replay using the same
-frozen decision gate. Keep SIFT while validating a native alternative on labeled
+The Accelerate/partial-selection backend passes the frozen decision gate and is
+3.27× faster in the paired eight-view benchmark. Full replay takes 71 seconds,
+with peak child memory about 550 MiB versus 524 MiB for the earlier scalar replay.
+Keep the scalar backend as a reference; mobile memory and thermal validation remain open.
+
+Next gate: keep SIFT while validating a native alternative on labeled
 geometry/photometric cases; successful registration alone is insufficient. Obtain
 the real 475-image manifest and labels for a larger sequential comparison. Device,
 RAW/high-depth and Photos/Photomator checks remain separate, lower-priority gates.
