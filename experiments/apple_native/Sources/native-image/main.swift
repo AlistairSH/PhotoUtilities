@@ -7,8 +7,8 @@ do {
         throw NSError(domain:"usage",code:1,userInfo:[NSLocalizedDescriptionKey:"native-image metadata SOURCE | derivative SOURCE DEST [clockwise-degrees [max-dimension [x y width height]]] ; crop origin bottom-left"])
     }
     let source = URL(fileURLWithPath:args[1])
-    if args[0] == "register", args.count == 3 {
-        let evidence = try Registration.probe(reference:source,floating:URL(fileURLWithPath:args[2]))
+    if ["register","register-canvas"].contains(args[0]), args.count == 3 {
+        let evidence = try Registration.probe(reference:source,floating:URL(fileURLWithPath:args[2]),padToCommonCanvas:args[0] == "register-canvas")
         print(String(data:try JSONSerialization.data(withJSONObject:evidence,options:[.sortedKeys]),encoding:.utf8)!)
     } else if args[0] == "metadata", args.count == 2 {
         // Descriptive output includes binary metadata lengths, not profile bytes.

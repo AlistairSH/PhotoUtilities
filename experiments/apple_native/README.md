@@ -5,7 +5,8 @@ Unmerged research on `experiment/apple-native`, branched from `8809e81` on
 are unchanged. Nothing here moves, archives or deletes photos. No cloud inference,
 Photos-library access, external Swift dependencies or model download.
 
-Start with the latest [edge correction and performance report](EDGE_PERFORMANCE.md),
+Start with the latest [native geometry gate](GEOMETRY_GATE.md),
+the [edge correction and performance report](EDGE_PERFORMANCE.md),
 the [decision-parity report](DECISION_PARITY.md),
 [dependency audit](AUDIT.md), initial [comparison findings](FINDINGS.md) and
 [migration recommendation](MIGRATION.md). The selected implementation investigates
@@ -165,3 +166,11 @@ geometry yields explicit unassessed status. Returned matrix/confidence is eviden
 only, not SIFT-equivalent corroboration or a candidate match. Foundation Models
 semantic/aesthetic scoring remains disabled; no model availability or score is
 invented. Vision classification labels are optional local evidence only.
+
+## Native geometry evaluation
+
+`native-image register SOURCE FLOATING` retains the same-dimension registration
+probe. `native-image register-canvas SOURCE FLOATING` explicitly experiments with
+a common padded canvas. Both return evidence only. The [geometry gate](GEOMETRY_GATE.md)
+records why the evaluated request does not replace SIFT and provides reproduction
+commands plus a local visual review with optional explicit manual labels.
