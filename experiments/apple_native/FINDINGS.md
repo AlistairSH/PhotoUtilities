@@ -1,5 +1,9 @@
 # Comparative findings — October 18, 2026
 
+Historical initial spike. The subsequent [decision-parity report](DECISION_PARITY.md)
+ports the complete focus/tier policies and corrects Gaussian/grayscale rounding.
+Its current results supersede the initial focus-parity limitations below.
+
 Unmerged local research; accepted algorithms and scanner processing unchanged.
 Baseline `8809e81`; implementation milestone `4076a82`. Source and executable
 fingerprints are recorded by the final comparison adapter. A subsequent

@@ -5,13 +5,15 @@ Unmerged research on `experiment/apple-native`, branched from `8809e81` on
 are unchanged. Nothing here moves, archives or deletes photos. No cloud inference,
 Photos-library access, external Swift dependencies or model download.
 
-Start with [dependency audit](AUDIT.md), [comparison findings](FINDINGS.md) and
+Start with the latest [decision-parity report](DECISION_PARITY.md),
+[dependency audit](AUDIT.md), initial [comparison findings](FINDINGS.md) and
 [migration recommendation](MIGRATION.md). The selected implementation investigates
 native image handling, global/regional focus measurements, Vision-only grouping,
-classification evidence and homographic registration. It is **not yet a native
-replacement for the complete 475-image review workflow**. Contrast edge-profile
-confirmation, final focus decisions, exact tier policy, review HTML and SIFT are
-still provided by the accepted implementation.
+classification evidence, homographic registration, edge-profile measurement and
+complete focus/tier decision replay. It is **not yet a native replacement for the
+complete 475-image review workflow**. SIFT grouping and review HTML remain in the
+accepted implementation; the decision-parity gate freezes that grouping and Vision
+evidence while testing the Swift measurement and policy core.
 
 ## Build and verification
 
@@ -60,10 +62,10 @@ stdout is not a completed review. At most 500 explicit paths are allowed.
 
 The scalar Swift focus port uses the same derivative kernels, normalization,
 reflect101 smoothing, 1-pixel metric guards, 3-pixel outside guards, population
-variance, interpolated p90 and minimum 100 pixels. Gaussian floating-point
-rounding differs from OpenCV's fixed-point 8-bit implementation. Do not retune
-focus thresholds to hide that difference. Accelerate optimization is deferred
-until measurement and decision parity are sufficient.
+variance, interpolated p90 and minimum 100 pixels. The current port preserves the pinned OpenCV 8-bit Gaussian kernel and integer
+rounding; float32 edge extraction still has small numerical differences, including
+one 50-versus-48 edge-count boundary case. No thresholds were retuned. See the
+decision-parity report before attempting Accelerate optimization or integration.
 
 ## Comparative tests
 
@@ -98,6 +100,26 @@ These artifacts include local paths/analysis and must remain outside Git.
 Pipeline time includes IPC/backpressure and baseline Python work; parent/child
 peak RSS are macOS `getrusage` bytes, not a mobile memory benchmark. No manual
 false-positive/false-negative truth is inferred from agreement with an algorithm.
+
+## Complete focus and tier decision replay
+
+The package also builds `native-policy` and `native-measure`. The former consumes
+frozen review evidence on stdin and returns decisions; the latter recomputes
+regional focus, edges and exposure from checksum-verified frozen display pixels.
+Neither invokes Python or Vision. The Python adapters freeze the accepted oracle
+and compare outputs; they are test infrastructure, not native runtime dependencies.
+
+See [the parity report](DECISION_PARITY.md) for freeze/replay commands and local
+artifacts. Run the additional independent checks with:
+
+```sh
+.venv/bin/python -B experiments/apple_native/test_policy.py /path/to/native-policy
+.venv/bin/python -B experiments/apple_native/test_measurements.py /path/to/native-measure
+```
+
+The older `native-photo --tiers` command still emits native quality **evidence**;
+it does not automatically orchestrate the new policy engine or replace SIFT.
+No new production command/menu behavior is introduced.
 
 ## Image and metadata probes
 
