@@ -1,8 +1,8 @@
 # PhotoUtilities — current project state
 
-Updated October 17, 2026. [README.md](README.md) documents operation;
+Updated October 18, 2026. [README.md](README.md) documents operation;
 [AGENTS.md](AGENTS.md) governs development. Dated decisions and earlier validation
-are preserved in [project history](experiments/PROJECT_HISTORY_20261017.md).
+are preserved in [project history](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments/PROJECT_HISTORY_20261017.md).
 
 ## Status and scope
 
@@ -12,13 +12,10 @@ grouping, three-tier selection review, optional Polaroid TIFF editing and explic
 reversible culling. SQLite records jobs, assets, recipes, checksums and lineage.
 
 The user has reviewed and accepted the integrated workflow and report refinements.
-The current implementation is on `experiment/ranking-culling`, not yet merged
-into `main`. The user authorized committing the completed CLI integration, report
-refinements and documentation, then validating an exact committed-code report on
-PhotoSamples. RestorationLab was separately committed as a related tool.
-No push, PR or merge is authorized by this checkpoint request.
-Historical push authorizations applied to specific checkpoints and are not
-standing authorization for future pushes.
+The accepted integration and standalone RestorationLab checkpoint are merged into
+`main` and published on GitHub. Research scripts and history are preserved on
+`experiment/ranking-culling` at `8809e81`; they are not required to run the CLI,
+RestorationLab, packaging or core tests and have been removed from `main`.
 
 ## Common workflows and menu
 
@@ -188,8 +185,8 @@ and disposable copies for editing/archive tests. Private photos, previews, repor
 DBs, binaries and model weights stay outside Git and off remote inference services.
 
 Historical focus, aesthetics, Foundation Models, metadata, face-capture and cascade
-experiments remain under `experiments/`; research artifacts are separate from CLI
-features even when committed. Only the selected native measurement/tier policy was
+experiments are preserved in the [experimental branch snapshot](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments);
+research artifacts are separate from CLI features. Only the selected native measurement/tier policy was
 promoted. Orientation saliency is a rejected standalone fallback trial.
 
 RestorationLab is a related but separate, effectively complete film-restoration

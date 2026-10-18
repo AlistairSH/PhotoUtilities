@@ -73,7 +73,7 @@ Existing source images, historical reports and experimental scripts are preserve
 The user accepted the 475-image four-folder run (55 groups, 322 ungrouped,
 228 focus-review flags, about eight minutes). Unflagged images now have no
 explanatory focus comment; flags, group highlights and positive reasons remain.
-The historical numerical engines/tests are retained in experiments/ranking_culling
+The historical numerical engines/tests are retained on the [experimental branch](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments/ranking_culling)
 for reproducibility without adding any photo/report/database artifacts to Git.
 
 Archive v2 uses YYYYMMDD-archive folders and collision suffixes, retains only the

@@ -199,7 +199,7 @@ verification, not independently validated accuracy or a guarantee for every batc
 The first larger four-folder run processed 475 images in about eight minutes,
 with 55 groups, 322 ungrouped images and 228 review suggestions. The user accepted
 the workflow after reviewing its report. Historical experiment scripts/tests are
-retained in `experiments/ranking_culling`; they are development records, not extra
+retained on the [experimental branch](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments/ranking_culling); they are development records, not extra
 filters run by the CLI. Photographs, generated reports, databases and compiled
 helpers are not included in Git. Physical acquisition of the latest scanner
 wrapper remains separately unverified.
@@ -584,7 +584,7 @@ five needing rotation and 84 correct at 0°. Both methods missed all five needed
 rotations and each suggested six incorrect rotations; the fallback was **not
 adopted**. Its long-edge boundary was only a proxy for horizon height. Normal CLI
 rotation continues to use face/body evidence and leaves uncertain images unchanged,
-without a report comment. See [the standalone experiment](experiments/orientation_saliency/README.md).
+without a report comment. See [the standalone experiment](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments/orientation_saliency/README.md).
 
 The legacy import migrated 31 metadata files, with integrity/foreign keys passing
 and no changed image checksums. One pre-existing master reference was missing;

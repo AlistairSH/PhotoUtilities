@@ -4,20 +4,19 @@
 
 Read `PROJECT.md` before implementation and preserve confirmed user decisions.
 `README.md` documents actual commands; `PROJECT.md` distinguishes implemented,
-experimental and deferred scope. Files under `experiments/*HISTORY*` and dated
-implementation reports are historical evidence, not current instructions or tasks.
+experimental and deferred scope. Research scripts and history are preserved on `experiment/ranking-culling` at
+`8809e81`, outside the current main tree. Dated implementation reports are historical
+evidence, not current instructions or tasks.
 Inspect current CLI/code before editing; preserve unrelated user work. Keep a short
 plan for multi-step changes and complete authorized implementation and verification.
 
 ## Local development and authorization
 
-- Work locally on a dedicated development branch. Current integration is on
-  `experiment/ranking-culling`; keep `main` unchanged until explicitly authorized.
-  The user authorized the RestorationLab commit and then the completed CLI
-  integration/report/documentation checkpoint followed by an exact committed-code
-  PhotoSamples report run; no push, PR or merge is authorized.
-  Earlier checkpoint push permissions do not authorize future pushes. Do not
-  create a new remote; the repository already has one.
+- Work locally on a dedicated development branch. The accepted integration is
+  merged into `main` and published. Keep research on experimental branches;
+  `experiment/ranking-culling` at `8809e81` preserves the removed experiments.
+  Commit, push and merge only within the user's current authorized scope.
+  Do not create a new remote; the repository already has one.
 - Production image processing and metadata remain offline/local. No telemetry,
   accounts, paid services, hosted image inference or private-photo uploads.
   Public documentation and routine development dependency downloads are allowed;

@@ -52,9 +52,9 @@ not unmatched images. Report the actual failure and stop dependent processing;
 never silently omit failed inputs. A scan request authorizes acquisition;
 physical validation of the latest wrapper remains a separate check.
 
-## Current branch integration (October 17)
+## Current CLI integration (October 18)
 
-On experiment/ranking-culling, use `process TARGET...` for folders and `scan` or
+On main, use `process TARGET...` for folders and `scan` or
 `process-sheet SOURCE` for sheets. These generate three-tier review and conservative
 visual quarter-turns by default. `--kind prints` now splits separated ordinary
 rectangular prints; it is no longer a placeholder. `--retouch none` skips edits
