@@ -16,10 +16,23 @@ public enum Statistics {
     public static func variance(_ values: [Double],backend: NumericalBackend) -> Double {
         let m = mean(values,backend:backend)
         if backend == .scalar { return values.map { ($0-m)*($0-m) }.reduce(0,+)/Double(values.count) }
-        var centered = [Double](repeating:0,count:values.count), offset = -m, result = 0.0
-        vDSP_vsaddD(values,1,&offset,&centered,1,vDSP_Length(values.count))
-        vDSP_measqvD(centered,1,&result,vDSP_Length(values.count))
-        return result
+        // Bound scratch memory independently of image/region size. Centered
+        // squares avoid the cancellation of E[x²]-E[x]² on low-contrast images.
+        let capacity = min(values.count,65536)
+        var centered = [Double](repeating:0,count:capacity), offset = -m, sum = 0.0
+        values.withUnsafeBufferPointer { source in
+            centered.withUnsafeMutableBufferPointer { scratch in
+                var start = 0
+                while start < values.count {
+                    let count = min(capacity,values.count-start)
+                    var partial = 0.0
+                    vDSP_vsaddD(source.baseAddress!+start,1,&offset,scratch.baseAddress!,1,vDSP_Length(count))
+                    vDSP_svesqD(scratch.baseAddress!,1,&partial,vDSP_Length(count))
+                    sum += partial; start += count
+                }
+            }
+        }
+        return sum/Double(values.count)
     }
     /// Three-way quickselect keeps duplicate-rich/flat image data linear. The
     /// selected rank and adjacent minimum give the same interpolation as sorting.

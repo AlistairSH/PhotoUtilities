@@ -21,13 +21,15 @@ def run(binary):
         step=np.zeros((h,w),np.uint8);step[:,w//2:]=255
         rng=np.random.default_rng(8)
         images=[np.full((h,w,3),128,np.uint8),np.repeat(step[:,:,None],3,axis=2),
-                np.repeat(cv2.GaussianBlur(step,(0,0),3.)[:,:,None],3,axis=2),rng.integers(0,256,(h,w,3),dtype=np.uint8)]
+                np.repeat(cv2.GaussianBlur(step,(0,0),3.)[:,:,None],3,axis=2),rng.integers(0,256,(h,w,3),dtype=np.uint8),np.repeat(step[:,:,None],3,axis=2)]
         for index,rgb in enumerate(images):
             detectors={kind:{'status':'ok','regions':[]} for kind in ('faces','people','animals','objectness','attention')}
             detectors['faces']['regions']=[{'box':[0,0,.5,.5]}]
             detectors['animals']['regions']=[{'box':[.5,.5,.5,.5]}]
             detectors['objectness']['regions']=[{'box':[-.1,.2,.4,.7]}]
             detectors['attention']['regions']=[{'box':[.1234,.2345,.4567,.3456]}]
+            if index==4:
+                for detector in detectors.values():detector['regions']=[]
             pixels=np.dstack((rgb,np.full((h,w),255,np.uint8))).tobytes()
             name=f'{index:04d}-1024.rgba';path=root/'pixels'/name;path.write_bytes(pixels);hashes[name]=digest(path)
             views.append({'index':index,'path':f'synthetic-{index}','max_dimension':1024,'width':w,'height':h,'detectors':copy.deepcopy(detectors)})
@@ -58,7 +60,7 @@ def run(binary):
         path=root/'pixels'/'0000-1024.rgba';path.write_bytes(b'changed')
         failed=subprocess.run([binary,str(root),str(root/'bad.jsonl')],capture_output=True,text=True,timeout=20)
         assert failed.returncode!=0 and 'Changed frozen pixels' in failed.stderr
-    print('Passed 4 synthetic measurement comparisons and changed-pixel rejection')
+    print('Passed 5 synthetic measurement comparisons and changed-pixel rejection')
 
 if __name__=='__main__':
     run(sys.argv[1])

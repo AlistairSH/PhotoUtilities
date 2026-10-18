@@ -59,7 +59,8 @@ public extension Focus {
             for y in max(0,b.t-4)..<min(h,b.b+4) { for x in max(0,b.l-4)..<min(w,b.r+4) { excluded[y*w+x] = true } }
         }
         let all: Bounds = (1,1,w-1,h-1)
-        let semanticOutside = stats(all) { x,y in !excluded[y*w+x] }
+        // No face/person/animal can consume this cached background when none exists.
+        let semanticOutside = semantic.isEmpty ? nil : stats(all) { x,y in !excluded[y*w+x] }
         var output: [[String: Any]] = []
         for kind in ["faces","people","animals","objectness","attention"] {
             for (index,region) in boxes(kind).enumerated() {

@@ -72,7 +72,7 @@ do {
     // Independent sorting oracle exercises interpolation, duplicate-rich inputs,
     // ascending/descending data and fractions on either side of exact ranks.
     let statisticInputs: [[Double]] = [Array(repeating:0,count:1024),Array((0..<1001).map(Double.init)),Array((0..<1001).reversed().map(Double.init)),
-        (0..<4096).map { Double(($0*73+$0/17)%101) },[1],[1,2],[1,1,2,2,2,3]]
+        (0..<4096).map { Double(($0*73+$0/17)%101) },(0..<131079).map { 0.5+Double($0%17)*1e-9 },[1],[1,2],[1,1,2,2,2,3]]
     for input in statisticInputs {
         for fraction in [0.0,0.1,0.5,0.9,0.999,1.0] {
             var accelerated = input, scalar = input
@@ -83,7 +83,7 @@ do {
         let a = Statistics.mean(input,backend:.accelerate), b = Statistics.mean(input,backend:.scalar)
         try check(abs(a-b) <= 1e-11*max(1,abs(b)),"Accelerate mean")
         let va = Statistics.variance(input,backend:.accelerate), vb = Statistics.variance(input,backend:.scalar)
-        try check(abs(va-vb) <= 1e-11*max(1,abs(vb)),"Accelerate population variance")
+        try check(abs(va-vb) <= 1e-8*abs(vb)+1e-28,"Accelerate population variance")
     }
     let edgeGray: [UInt8] = (0..<16384).map { (index: Int) -> UInt8 in UInt8((index*73+index/17)%256) }
     var gaussianHash = ""
