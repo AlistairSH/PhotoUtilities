@@ -1,58 +1,83 @@
 import Foundation
 
 public extension Focus {
-    /// Same normalized top-left box convention and pixel guards as baseline.
+    /// Compute derivatives once before regional selection. Rectangular guards
+    /// implement the accepted binary-mask erosion/dilation without rescanning
+    /// derivatives for each tile and region.
     static func regions(_ rgba: [UInt8], width w: Int, height h: Int, detectors: [String: Any]) -> [String: Any] {
         let pixels = smooth(gray(rgba),width:w,height:h)
+        var lap = [Double](repeating:0,count:w*h), energy = lap
+        if w >= 3 && h >= 3 {
+            for y in 1..<h-1 { for x in 1..<w-1 {
+                let i = y*w+x
+                lap[i] = pixels[i-1]+pixels[i+1]+pixels[i-w]+pixels[i+w]-4*pixels[i]
+                let dx = pixels[i-w+1]+2*pixels[i+1]+pixels[i+w+1]-pixels[i-w-1]-2*pixels[i-1]-pixels[i+w-1]
+                let dy = pixels[i+w-1]+2*pixels[i+w]+pixels[i+w+1]-pixels[i-w-1]-2*pixels[i-w]-pixels[i-w+1]
+                energy[i] = dx*dx+dy*dy
+            }}
+        }
+        typealias Bounds = (l: Int,t: Int,r: Int,b: Int)
         func boxes(_ kind: String) -> [[String: Any]] { (detectors[kind] as? [String: Any])?["regions"] as? [[String: Any]] ?? [] }
         func coordinates(_ region: [String: Any]) -> [Double] {
-            (region["box"] as! [CGFloat]).map { Double($0) }
+            if let box = region["box"] as? [Double] { return box }
+            if let box = region["box"] as? [CGFloat] { return box.map { Double($0) } }
+            return (region["box"] as! [NSNumber]).map(\.doubleValue)
         }
-        func bounds(_ b: [Double]) -> (Int,Int,Int,Int) {
+        func bounds(_ b: [Double]) -> Bounds {
             let x = max(0,b[0]), y = max(0,b[1]), r = min(1,b[0]+b[2]), bottom = min(1,b[1]+b[3])
             return (Int(x*Double(w)),Int(y*Double(h)),Int((r*Double(w)).rounded(.toNearestOrEven)),Int((bottom*Double(h)).rounded(.toNearestOrEven)))
         }
-        func mask(_ b: (Int,Int,Int,Int)) -> [Bool] {
-            var result = [Bool](repeating:false,count:w*h)
-            if b.2 > b.0 && b.3 > b.1 { for y in max(0,b.1)..<min(h,b.3) { for x in max(0,b.0)..<min(w,b.2) { result[y*w+x] = true } } }
-            return result
+        func stats(_ b: Bounds,accept: ((Int,Int) -> Bool)? = nil) -> [String: Double]? {
+            let left = max(1,b.l), top = max(1,b.t), right = min(w-1,b.r), bottom = min(h-1,b.b)
+            guard right > left && bottom > top else { return nil }
+            var laps: [Double] = [], energies: [Double] = [], luminance: [Double] = []
+            for y in top..<bottom { for x in left..<right {
+                if let accept = accept, !accept(x,y) { continue }
+                let i = y*w+x; laps.append(lap[i]); energies.append(energy[i]); luminance.append(pixels[i])
+            }}
+            guard laps.count >= 100 else { return nil }
+            func mean(_ a: [Double]) -> Double { a.reduce(0,+)/Double(a.count) }
+            func variance(_ a: [Double]) -> Double { let m = mean(a); return mean(a.map { ($0-m)*($0-m) }) }
+            energies.sort()
+            let q = Double(energies.count-1)*0.9, lo = Int(q)
+            return ["pixels":Double(laps.count),"laplacian_variance":variance(laps),"tenengrad":mean(energies),
+                "gradient_energy_p90":energies[lo]+(energies[min(lo+1,energies.count-1)]-energies[lo])*(q-Double(lo)),
+                "luminance_mean":mean(luminance),"luminance_std":sqrt(variance(luminance))]
         }
+        // An outside mask dilated by 3 then eroded by 1 excludes each source
+        // rectangle expanded by 4. Empty rectangles contribute no excluded pixels.
+        let semantic = ["faces","people","animals"].flatMap { kind in boxes(kind).map { bounds(coordinates($0)) } }.filter { $0.r > $0.l && $0.b > $0.t }
         var excluded = [Bool](repeating:false,count:w*h)
-        for kind in ["faces","people","animals"] { for region in boxes(kind) {
-            let m = mask(bounds(coordinates(region)))
-            for i in m.indices where m[i] { excluded[i] = true }
-        }}
+        for b in semantic {
+            for y in max(0,b.t-4)..<min(h,b.b+4) { for x in max(0,b.l-4)..<min(w,b.r+4) { excluded[y*w+x] = true } }
+        }
+        let all: Bounds = (1,1,w-1,h-1)
+        let semanticOutside = stats(all) { x,y in !excluded[y*w+x] }
         var output: [[String: Any]] = []
         for kind in ["faces","people","animals","objectness","attention"] {
             for (index,region) in boxes(kind).enumerated() {
-                let box = coordinates(region), b = bounds(box), m = mask(b)
-                var item: [String: Any] = ["id":"\(kind) \(index+1)","box":box,"pixels":[b.2-b.0,b.3-b.1],"usable":min(b.2-b.0,b.3-b.1)>=24,"raw":NSNull(),"smoothed":NSNull()]
-                if min(b.2-b.0,b.3-b.1)>=24 {
-                    var outside = [Bool](repeating:true,count:w*h)
-                    // Complement of a 7x7 dilation; skip clipped neighbors outside image.
-                    for y in 0..<h { for x in 0..<w where excluded[y*w+x] || m[y*w+x] {
-                        for yy in max(0,y-3)...min(h-1,y+3) { for xx in max(0,x-3)...min(w-1,x+3) { outside[yy*w+xx] = false } }
-                    }}
-                    let inside = metrics(pixels,width:w,height:h,mask:m)
-                    let background = metrics(pixels,width:w,height:h,mask:outside)
+                let box = coordinates(region), b = bounds(box), usable = min(b.r-b.l,b.b-b.t) >= 24
+                var item: [String: Any] = ["id":"\(kind) \(index+1)","box":box,"pixels":[b.r-b.l,b.b-b.t],"usable":usable,"raw":NSNull(),"smoothed":NSNull()]
+                if usable {
+                    let inside = stats((b.l+1,b.t+1,b.r-1,b.b-1))
+                    let background: [String: Double]?
+                    if ["faces","people","animals"].contains(kind) { background = semanticOutside }
+                    else { background = stats(all) { x,y in !excluded[y*w+x] && !(x >= b.l-4 && x < b.r+4 && y >= b.t-4 && y < b.b+4) } }
                     var ratios: [String: Any] = [:]
                     if let inside = inside, let background = background {
-                        for metric in ["laplacian_variance","tenengrad","gradient_energy_p90"] {
-                            ratios[metric] = background[metric]! > 0 ? inside[metric]!/background[metric]! : NSNull()
-                        }
+                        for key in ["laplacian_variance","tenengrad","gradient_energy_p90"] { ratios[key] = background[key]! > 0 ? inside[key]!/background[key]! : NSNull() }
                     }
                     item["smoothed"] = ["region":inside as Any? ?? NSNull(),"outside":background as Any? ?? NSNull(),"region_to_outside":ratios]
                 }
                 output.append(item)
             }
         }
-        var tiles: [Double] = []
         func boundary(_ n: Int,_ i: Int) -> Int { i*(n/4)+min(i,n%4) }
+        var tiles: [Double] = []
         for y in 0..<4 { for x in 0..<4 {
-            let m = mask((boundary(w,x),boundary(h,y),boundary(w,x+1),boundary(h,y+1)))
-            if let value = metrics(pixels,width:w,height:h,mask:m) { tiles.append(value["tenengrad"]!) }
+            if let metric = stats((boundary(w,x)+1,boundary(h,y)+1,boundary(w,x+1)-1,boundary(h,y+1)-1)) { tiles.append(metric["tenengrad"]!) }
         }}
-        return ["version":"swift-scalar-gaussian1-v1","treatment":"gaussian1","sigma":1.0,
-                "global":["smoothed":metrics(pixels,width:w,height:h) as Any? ?? NSNull()],"tile_tenengrad":tiles,"regions":output]
+        return ["version":"swift-scalar-gaussian1-v2","treatment":"gaussian1","sigma":1.0,
+                "global":["smoothed":stats(all) as Any? ?? NSNull()],"tile_tenengrad":tiles,"regions":output]
     }
 }

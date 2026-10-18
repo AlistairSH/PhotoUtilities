@@ -1,7 +1,7 @@
 import Foundation
 
 /// Scalar reference port. Pixels are display-view, 8-bit RGB, as in the accepted helper.
-/// Deliberately does not claim equivalence to OpenCV's fixed-point Gaussian path.
+/// Uses the pinned baseline's integer grayscale and sigma-one Gaussian rounding.
 public enum Focus {
     static func reflect(_ p: Int, _ n: Int) -> Int {
         if n == 1 { return 0 }
@@ -11,22 +11,23 @@ public enum Focus {
     }
     public static func gray(_ rgba: [UInt8]) -> [UInt8] {
         stride(from: 0, to: rgba.count, by: 4).map { i in
-            UInt8((4899*Int(rgba[i])+9617*Int(rgba[i+1])+1868*Int(rgba[i+2])+8192)>>14)
+            UInt8((9798*Int(rgba[i])+19235*Int(rgba[i+1])+3735*Int(rgba[i+2])+16384)>>15)
         }
     }
     public static func smooth(_ gray: [UInt8], width w: Int, height h: Int) -> [Double] {
         precondition(w > 0 && h > 0 && gray.count == w*h)
-        let k = (-3...3).map { exp(-Double($0*$0)/2) }
-        let total = k.reduce(0,+)
-        var horizontal = [Double](repeating: 0, count: w*h)
-        var output = horizontal
+        // Pinned OpenCV 4.11 sigma=1 / uint8 kernel, 8-bit fixed-point.
+        // Preserve a single final rounding after the two separable passes.
+        let k = [1,14,62,102,62,14,1]
+        var horizontal = [Int](repeating:0,count:w*h)
+        var output = [Double](repeating:0,count:w*h)
         for y in 0..<h { for x in 0..<w {
-            for d in -3...3 { horizontal[y*w+x] += Double(gray[y*w+reflect(x+d,w)])*k[d+3]/total }
+            for d in -3...3 { horizontal[y*w+x] += Int(gray[y*w+reflect(x+d,w)])*k[d+3] }
         }}
         for y in 0..<h { for x in 0..<w {
-            var value = 0.0
-            for d in -3...3 { value += horizontal[reflect(y+d,h)*w+x]*k[d+3]/total }
-            output[y*w+x] = min(255,max(0,value.rounded()))/255
+            var value = 0
+            for d in -3...3 { value += horizontal[reflect(y+d,h)*w+x]*k[d+3] }
+            output[y*w+x] = Double((value+32768)>>16)/255
         }}
         return output
     }

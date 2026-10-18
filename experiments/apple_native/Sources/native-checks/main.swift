@@ -43,6 +43,32 @@ do {
     let region = (regional["regions"] as! [[String: Any]])[0]
     try check(region["usable"] as! Bool,"Native CGFloat detector bridge")
     try check((regional["tile_tenengrad"] as! [Double]).count == 0,"Small tiles remain unmeasured")
+    let gaussianVectors: [(Int,Int,String)] = [(1,1,"6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"),
+        (3,2,"b7c21b2c981102e21f1903c4b4cb536acafed5104fd9ffd8b9912cca4ebac0e5"),
+        (73,69,"adad37d6737e0f2ad905dc83a3a3f457532dd7c89f9789ffcfcc67df16c67784")]
+    for (w,h,expected) in gaussianVectors {
+        let input = (0..<w*h).map { UInt8(($0*73+$0/17)%256) }
+        let output = Data(Focus.smooth(input,width:w,height:h).map { UInt8(($0*255).rounded()) })
+        let actual = SHA256.hash(data:output).map { String(format:"%02x",$0) }.joined()
+        try check(actual == expected,"Pinned Gaussian pixels \(w)x\(h)")
+    }
+    var rng = SeededSampling()
+    try check((0..<5).map { _ in rng.next64() } == [11749869230777074271,4976686463289251617,755828109848996024,304881062738325533,15002187965291974971],"PCG64 seed-zero raw vectors")
+    let samplingVectors: [(Int,Int,String)] = [
+        (20,5,"abc2cc65a368b64bee9bfbf72a7d9b665cae488748f7910e77e519b6e9ddb9a1"),
+        (10001,3000,"bc124a0aeeeef959991d2e2747518592e50b83584629e54d69417761ef86b80d"),
+        (149999,3000,"6fdca328b22e828d5f67b5835c4881d56fb2984f6ae968918f18ee285b197c45"),
+        (150000,3000,"48bcf0273c0704e66c579b392a8900f358aa9d52de572e157aa20dc1e8c8e9d9"),
+        (200001,3000,"4ec9a176d8000911c17d25867abbd1a66200123daf5a4e426d7b7ef6537fb652")]
+    for (population,count,expected) in samplingVectors {
+        var generator = SeededSampling(), data = Data()
+        for var value in generator.choice(population:population,count:count).map({Int64($0).littleEndian}) { withUnsafeBytes(of:&value) { data.append(contentsOf:$0) } }
+        let actual = SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined()
+        try check(actual == expected,"Pinned NumPy choice vector \(population)")
+    }
+    let flatEdges = Edges.extract([UInt8](repeating:128,count:6400),width:80,height:80)
+    try check(flatEdges.width.isEmpty,"Flat image has no contrast edges")
+    try check(!Edges.flags(Edges.summarize(flatEdges))["contrast_proxy"]!,"Missing edges cannot flag contrast")
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("native-checks-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false)
     defer { try? FileManager.default.removeItem(at:root) }
