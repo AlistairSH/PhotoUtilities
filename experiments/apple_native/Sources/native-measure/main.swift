@@ -6,7 +6,8 @@ import NativePhotoCore
 // photograph writing or production state is involved in this host adapter.
 do {
     let args = Array(CommandLine.arguments.dropFirst())
-    guard args.count == 2 else { throw ReviewError.invalid("native-measure FIXTURE_DIRECTORY OUTPUT_JSONL (exclusive)") }
+    guard args.count == 2 || (args.count == 4 && args[2] == "--backend" && NumericalBackend(rawValue:args[3]) != nil) else { throw ReviewError.invalid("native-measure FIXTURE_DIRECTORY OUTPUT_JSONL [--backend scalar|accelerate]") }
+    let backend = args.count == 4 ? NumericalBackend(rawValue:args[3])! : .accelerate
     let root = URL(fileURLWithPath:args[0]), output = URL(fileURLWithPath:args[1])
     guard !FileManager.default.fileExists(atPath:output.path) else { throw CocoaError(.fileWriteFileExists) }
     let manifest = try JSONSerialization.jsonObject(with:Data(contentsOf:root.appendingPathComponent("complete.json"))) as! [String: Any]
@@ -32,8 +33,12 @@ do {
             guard w > 0, h > 0, max(w,h) <= 2048, pixels.count == w*h*4 else { throw ReviewError.invalid("Invalid decoded pixels") }
             let detectors = view["detectors"] as! [String: Any]
             let started = ProcessInfo.processInfo.systemUptime
-            let focus = Focus.regions(pixels,width:w,height:h,detectors:detectors)
+            let focusStarted = ProcessInfo.processInfo.systemUptime
+            let focus = Focus.regions(pixels,width:w,height:h,detectors:detectors,backend:backend)
+            let focusSeconds = ProcessInfo.processInfo.systemUptime-focusStarted
+            let edgeStarted = ProcessInfo.processInfo.systemUptime
             let edges = Edges.extract(Focus.gray(pixels),width:w,height:h)
+            let edgeSeconds = ProcessInfo.processInfo.systemUptime-edgeStarted
             let global = Edges.summarize(edges)
             var regions: [[String: Any]] = []
             for kind in ["faces","people","animals","objectness","attention"] {
@@ -46,7 +51,7 @@ do {
             }
             let row: [String: Any] = ["path":view["path"]!,"max_dimension":scale,"index":index,
                 "exposure":Exposure.measure(pixels,width:w,height:h,detectors:detectors),"focus":focus,"edge_global":global,"edge_flags":Edges.flags(global),"edge_regions":regions,
-                "measurement_seconds":ProcessInfo.processInfo.systemUptime-started]
+                "backend":backend.rawValue,"focus_seconds":focusSeconds,"edge_seconds":edgeSeconds,"measurement_seconds":ProcessInfo.processInfo.systemUptime-started]
             var bytes = try JSONSerialization.data(withJSONObject:row,options:[.sortedKeys]); bytes.append(10)
             try handle.write(contentsOf:bytes)
             FileHandle.standardError.write(Data("Measured \(index+1) / \(scale)\n".utf8))

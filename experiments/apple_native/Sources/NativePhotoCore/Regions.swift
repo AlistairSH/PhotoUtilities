@@ -4,7 +4,7 @@ public extension Focus {
     /// Compute derivatives once before regional selection. Rectangular guards
     /// implement the accepted binary-mask erosion/dilation without rescanning
     /// derivatives for each tile and region.
-    static func regions(_ rgba: [UInt8], width w: Int, height h: Int, detectors: [String: Any]) -> [String: Any] {
+    static func regions(_ rgba: [UInt8], width w: Int, height h: Int, detectors: [String: Any],backend: NumericalBackend = .accelerate) -> [String: Any] {
         let pixels = smooth(gray(rgba),width:w,height:h)
         var lap = [Double](repeating:0,count:w*h), energy = lap
         if w >= 3 && h >= 3 {
@@ -36,13 +36,20 @@ public extension Focus {
                 let i = y*w+x; laps.append(lap[i]); energies.append(energy[i]); luminance.append(pixels[i])
             }}
             guard laps.count >= 100 else { return nil }
-            func mean(_ a: [Double]) -> Double { a.reduce(0,+)/Double(a.count) }
-            func variance(_ a: [Double]) -> Double { let m = mean(a); return mean(a.map { ($0-m)*($0-m) }) }
-            energies.sort()
-            let q = Double(energies.count-1)*0.9, lo = Int(q)
-            return ["pixels":Double(laps.count),"laplacian_variance":variance(laps),"tenengrad":mean(energies),
-                "gradient_energy_p90":energies[lo]+(energies[min(lo+1,energies.count-1)]-energies[lo])*(q-Double(lo)),
-                "luminance_mean":mean(luminance),"luminance_std":sqrt(variance(luminance))]
+            let lapVariance = Statistics.variance(laps,backend:backend)
+            let grayMean = Statistics.mean(luminance,backend:backend)
+            let grayVariance = Statistics.variance(luminance,backend:backend)
+            let tenengrad: Double, p90: Double
+            if backend == .scalar {
+                p90 = Statistics.quantile(&energies,fraction:0.9,backend:backend)
+                tenengrad = Statistics.mean(energies,backend:backend)
+            } else {
+                tenengrad = Statistics.mean(energies,backend:backend)
+                p90 = Statistics.quantile(&energies,fraction:0.9,backend:backend)
+            }
+            return ["pixels":Double(laps.count),"laplacian_variance":lapVariance,"tenengrad":tenengrad,
+                "gradient_energy_p90":p90,"luminance_mean":grayMean,"luminance_std":sqrt(grayVariance)]
+
         }
         // An outside mask dilated by 3 then eroded by 1 excludes each source
         // rectangle expanded by 4. Empty rectangles contribute no excluded pixels.
@@ -77,7 +84,7 @@ public extension Focus {
         for y in 0..<4 { for x in 0..<4 {
             if let metric = stats((boundary(w,x)+1,boundary(h,y)+1,boundary(w,x+1)-1,boundary(h,y+1)-1)) { tiles.append(metric["tenengrad"]!) }
         }}
-        return ["version":"swift-scalar-gaussian1-v2","treatment":"gaussian1","sigma":1.0,
+        return ["version":"swift-native-gaussian1-v3","treatment":"gaussian1","sigma":1.0,
                 "global":["smoothed":stats(all) as Any? ?? NSNull()],"tile_tenengrad":tiles,"regions":output]
     }
 }

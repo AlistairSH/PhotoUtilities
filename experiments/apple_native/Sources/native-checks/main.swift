@@ -69,6 +69,35 @@ do {
     let flatEdges = Edges.extract([UInt8](repeating:128,count:6400),width:80,height:80)
     try check(flatEdges.width.isEmpty,"Flat image has no contrast edges")
     try check(!Edges.flags(Edges.summarize(flatEdges))["contrast_proxy"]!,"Missing edges cannot flag contrast")
+    // Independent sorting oracle exercises interpolation, duplicate-rich inputs,
+    // ascending/descending data and fractions on either side of exact ranks.
+    let statisticInputs: [[Double]] = [Array(repeating:0,count:1024),Array((0..<1001).map(Double.init)),Array((0..<1001).reversed().map(Double.init)),
+        (0..<4096).map { Double(($0*73+$0/17)%101) },[1],[1,2],[1,1,2,2,2,3]]
+    for input in statisticInputs {
+        for fraction in [0.0,0.1,0.5,0.9,0.999,1.0] {
+            var accelerated = input, scalar = input
+            let a = Statistics.quantile(&accelerated,fraction:fraction,backend:.accelerate)
+            let b = Statistics.quantile(&scalar,fraction:fraction,backend:.scalar)
+            try check(a == b,"Quantile selection versus sorting")
+        }
+        let a = Statistics.mean(input,backend:.accelerate), b = Statistics.mean(input,backend:.scalar)
+        try check(abs(a-b) <= 1e-11*max(1,abs(b)),"Accelerate mean")
+        let va = Statistics.variance(input,backend:.accelerate), vb = Statistics.variance(input,backend:.scalar)
+        try check(abs(va-vb) <= 1e-11*max(1,abs(vb)),"Accelerate population variance")
+    }
+    let edgeGray: [UInt8] = (0..<16384).map { (index: Int) -> UInt8 in UInt8((index*73+index/17)%256) }
+    var gaussianHash = ""
+    _ = Edges.extract(edgeGray,width:128,height:128) { name,values in
+        if name == "gaussian" { gaussianHash = values.withUnsafeBytes { SHA256.hash(data:Data($0)).map { String(format:"%02x",$0) }.joined() } }
+    }
+    try check(gaussianHash == "a95c903412c24219d6289dae3a19a58497c2b14f9c57a8396effb58460f74dae","Float32 Gaussian operation-order regression")
+    for count in [49,50,51] {
+        let data = try JSONSerialization.data(withJSONObject:["x":Array(repeating:0,count:count),"y":Array(repeating:0,count:count),
+            "width":Array(repeating:4,count:count),"contrast":Array(repeating:1,count:count),"angle":Array(repeating:0,count:count),"censored":Array(repeating:false,count:count)])
+        let edges = try JSONDecoder().decode(EdgeProfiles.self,from:data)
+        let flags = Edges.flags(Edges.summarize(edges))
+        try check(flags["contrast_proxy"]! == (count >= 50),"Unchanged 50-edge sufficiency boundary")
+    }
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("native-checks-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at:root,withIntermediateDirectories:false)
     defer { try? FileManager.default.removeItem(at:root) }

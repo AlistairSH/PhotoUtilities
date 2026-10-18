@@ -7,4 +7,5 @@ let package = Package(name: "NativePhotoExperiment", platforms: [.macOS(.v14), .
              .executableTarget(name: "native-checks", dependencies: ["NativePhotoCore"]),
              .executableTarget(name: "native-image", dependencies: ["NativePhotoCore"]),
              .executableTarget(name: "native-policy", dependencies: ["NativePhotoCore"]),
-             .executableTarget(name: "native-measure", dependencies: ["NativePhotoCore"])])
+             .executableTarget(name: "native-measure", dependencies: ["NativePhotoCore"]),
+             .executableTarget(name: "native-edge-probe", dependencies: ["NativePhotoCore"])])

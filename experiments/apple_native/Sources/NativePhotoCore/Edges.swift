@@ -9,31 +9,42 @@ public enum Edges {
         let a = input.sorted(), index = Double(a.count-1)*q, low = Int(index)
         return a[low]+(a[min(low+1,a.count-1)]-a[low])*(index-Double(low))
     }
-    public static func extract(_ gray: [UInt8],width w: Int,height h: Int) -> EdgeProfiles {
+    public static func extract(_ gray: [UInt8],width w: Int,height h: Int, trace: ((String,[Float]) -> Void)? = nil) -> EdgeProfiles {
         precondition(w > 0 && h > 0 && gray.count == w*h)
         guard w > 36 && h > 36 else { return EdgeProfiles() }
         let weights = (-4...4).map { exp(-Double($0*$0)/2) }, total = (-4...4).map { exp(-Double($0*$0)/2) }.reduce(0,+)
         let k = weights.map { Float($0/total) }, input = gray.map { Float($0)/255 }
         var horizontal = [Float](repeating:0,count:w*h), image = horizontal
-        for y in 0..<h { for x in 0..<w { for d in -4...4 { horizontal[y*w+x] += input[y*w+Focus.reflect(x+d,w)]*k[d+4] } } }
-        for y in 0..<h { for x in 0..<w { for d in -4...4 { image[y*w+x] += horizontal[Focus.reflect(y+d,h)*w+x]*k[d+4] } } }
+        for y in 0..<h { for x in 0..<w {
+            var value = input[y*w+Focus.reflect(x-4,w)]*k[0]
+            for d in -3...4 { value = value.addingProduct(input[y*w+Focus.reflect(x+d,w)],k[d+4]) }
+            horizontal[y*w+x] = value
+        }}
+        for y in 0..<h { for x in 0..<w {
+            var value = horizontal[y*w+x]*k[4]
+            for d in 1...4 { value = value.addingProduct(horizontal[Focus.reflect(y-d,h)*w+x]+horizontal[Focus.reflect(y+d,h)*w+x],k[4+d]) }
+            image[y*w+x] = value
+        }}
+        trace?("gaussian",image)
         var dx = image, dy = image, magnitude = image
         for y in 0..<h { for x in 0..<w {
             let l = Focus.reflect(x-1,w), r = Focus.reflect(x+1,w), t = Focus.reflect(y-1,h), b = Focus.reflect(y+1,h)
-            dx[y*w+x] = (image[t*w+r]-image[t*w+l])+2*(image[y*w+r]-image[y*w+l])+(image[b*w+r]-image[b*w+l])
-            dy[y*w+x] = (image[b*w+l]+2*image[b*w+x]+image[b*w+r])-(image[t*w+l]+2*image[t*w+x]+image[t*w+r])
-            magnitude[y*w+x] = sqrt(dx[y*w+x]*dx[y*w+x]+dy[y*w+x]*dy[y*w+x])
+            dx[y*w+x] = 2*(image[y*w+r]-image[y*w+l])+((image[t*w+r]-image[t*w+l])+(image[b*w+r]-image[b*w+l]))
+            dy[y*w+x] = (((image[b*w+l]+image[b*w+r])+image[b*w+x])+image[b*w+x])-(((image[t*w+l]+image[t*w+r])+image[t*w+x])+image[t*w+x])
+            magnitude[y*w+x] = sqrt((dy[y*w+x]*dy[y*w+x]).addingProduct(dx[y*w+x],dx[y*w+x]))
         }}
+        trace?("dx",dx); trace?("dy",dy); trace?("magnitude",magnitude)
         var candidates: [(Int,Int,Float)] = []
         for y in stride(from:18,to:h-18,by:3) { for x in stride(from:18,to:w-18,by:3) { candidates.append((x,y,magnitude[y*w+x])) } }
         if candidates.isEmpty { return EdgeProfiles() }
         let threshold = max(0.002,quantile(candidates.map { Double($0.2) },0.75))
-        candidates = candidates.filter { Double($0.2) > threshold }
+        candidates = candidates.filter { $0.2 > Float(threshold) }
         if candidates.count > 3000 {
             var rng = SeededSampling()
             let take = rng.choice(population:candidates.count,count:3000)
             candidates = take.map { candidates[$0] }
         }
+        if let trace = trace { trace("selected_x",candidates.map { Float($0.0) }); trace("selected_y",candidates.map { Float($0.1) }) }
         func sample(_ values: [Float],_ x: Float,_ y: Float) -> Float {
             let xx = Int((x*32).rounded(.toNearestOrEven)), yy = Int((y*32).rounded(.toNearestOrEven))
             let ix = xx >> 5, iy = yy >> 5, fx = Float(xx & 31)/32, fy = Float(yy & 31)/32
