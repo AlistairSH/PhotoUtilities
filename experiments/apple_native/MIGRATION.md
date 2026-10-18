@@ -30,8 +30,9 @@ The Accelerate/partial-selection backend passes the frozen decision gate and is
 with peak child memory about 550 MiB versus 524 MiB for the earlier scalar replay.
 Keep the scalar backend as a reference; mobile memory and thermal validation remain open.
 
-Next gate: explicitly review the nine corpus controls in the local geometry review,
-then expand labeled real crop/reframe/burst and confusing-negative cases. The tested
+Human review confirms all three SIFT-only links: the accepted rule agrees on all
+eight decisive labels (one uncertain is excluded); Vision-only agrees on five.
+Next gate: expand labeled real crop/reframe/burst and confusing-negative cases. The tested
 homographic request does not replace SIFT; avoid tuning a residual threshold on
 these controls. Obtain the real 475-image manifest and labels before claiming full
 workflow parity. Device, RAW/high-depth and Photos/Photomator checks remain separate.

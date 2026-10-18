@@ -122,3 +122,36 @@ and iOS/iPadOS behavior remain unverified. Do not tune a residual cutoff from th
 controls or infer a universal precision/recall estimate. Keep accepted SIFT until
 a candidate supplies validated local correspondence/coverage evidence and passes
 held-out labeled cases and the complete grouping/decision gate.
+
+## Human review received — October 18, 2026
+
+The user's exported labels bind exactly to evaluation SHA-256
+`bac70f35881d94b65e3184b08d8da27b1c7814ad0397ec52393d2b4bda476d61`.
+The nine controls are now explicitly labeled: **six related, two unrelated and
+one uncertain**. The uncertain choice remains excluded from binary comparisons.
+
+All three SIFT-only links are human-confirmed related pairs. The accepted
+Vision-plus-SIFT rule agrees on **8/8 decisive labels**; Vision-only agrees on
+**5/8**, missing those three related pairs. These are selected development
+controls, not held-out accuracy estimates. Native registration has no match
+classifier, so matrix/confidence outputs are not assigned classification scores.
+The result strengthens the decision to retain SIFT.
+
+`label_geometry.py` validates the exact evaluation checksum, case identities,
+allowed labels, duplicates and completeness. Explicit uncertain/unjudged choices
+stay unassessed. The original label export is preserved unchanged in a new
+private research directory; neither it nor private pair-level analysis is committed.
+Binding/exclusion/agreement checks and five malformed-input rejection cases pass.
+
+```sh
+.venv/bin/python -B experiments/apple_native/label_geometry.py /path/to/geometry-manual-labels.json \
+  --evaluation /private/tmp/apple-native-geometry-validated/summary.json \
+  --output /private/tmp/native-geometry-labels-new
+.venv/bin/python -B experiments/apple_native/test_geometry_labels.py
+```
+
+Private analysis: `/private/tmp/apple-native-geometry-human-labels-01/label-analysis.json`.
+The earlier nine-control labeling step is now complete, with the one explicit
+uncertainty preserved. Next research requires broader labeled real crop/reframe/
+burst positives and confusing negatives before evaluating another replacement;
+no thresholds or production behavior change from these labels.

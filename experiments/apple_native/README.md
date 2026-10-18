@@ -174,3 +174,6 @@ probe. `native-image register-canvas SOURCE FLOATING` explicitly experiments wit
 a common padded canvas. Both return evidence only. The [geometry gate](GEOMETRY_GATE.md)
 records why the evaluated request does not replace SIFT and provides reproduction
 commands plus a local visual review with optional explicit manual labels.
+
+Explicit manual-label imports use `label_geometry.py`; see the human-review section
+of [the geometry gate](GEOMETRY_GATE.md) for checksum binding and results.
