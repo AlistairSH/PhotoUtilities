@@ -5,7 +5,8 @@ Unmerged research on `experiment/apple-native`, branched from `8809e81` on
 are unchanged. Nothing here moves, archives or deletes photos. No cloud inference,
 Photos-library access, external Swift dependencies or model download.
 
-Start with the latest [native geometry gate](GEOMETRY_GATE.md),
+Start with the latest [SIFT-for-Swift gate](SIFT_GATE.md),
+the [native geometry gate](GEOMETRY_GATE.md),
 the [edge correction and performance report](EDGE_PERFORMANCE.md),
 the [decision-parity report](DECISION_PARITY.md),
 [dependency audit](AUDIT.md), initial [comparison findings](FINDINGS.md) and
@@ -177,3 +178,12 @@ commands plus a local visual review with optional explicit manual labels.
 
 Explicit manual-label imports use `label_geometry.py`; see the human-review section
 of [the geometry gate](GEOMETRY_GATE.md) for checksum binding and results.
+
+## SIFT for Swift
+
+The separate [SIFTBridge package](SIFTBridge/README.md) builds a Swift-facing,
+statically linked OpenCV SIFT implementation. The macOS 151-image / 11,325-pair
+replay matches accepted SIFT evidence and grouping. The base package still builds
+without OpenCV; opt into the separate package explicitly. Native iOS/iPadOS is the
+design target, but this host lacks full Xcode/iOS SDKs and no device build is
+claimed. See [SIFT_GATE.md](SIFT_GATE.md) for measured scope and the next gate.

@@ -1,6 +1,8 @@
 # Algorithm references and attribution
 
-The native package has no linked or downloaded third-party dependencies.
+The base native package has no linked or downloaded third-party dependencies.
+The separate opt-in [SIFTBridge](SIFTBridge/README.md) statically links OpenCV
+4.11.0 and its minimal dependencies; retained notices are in `SIFTBridge/Licenses`.
 `SeededSampling.swift` independently expresses PCG64 arithmetic and the pinned
 NumPy 2.0.2 unweighted, no-replacement choice algorithm in Swift, solely to preserve
 `default_rng(0)` edge selection. It is not a general NumPy random replacement.

@@ -15,7 +15,7 @@ parity. Keep the accepted pipeline as the working implementation.
 | Gaussian1 global/regional focus metrics | Replace with limitations | Pinned grayscale/Gaussian rounding corrected; 302-view native replay preserves all current recommendations and regional mask counts. Larger-corpus/device validation remains open. |
 | Edge extraction and subject evidence | Replace with limitations | Corrected arithmetic resolves the 48-versus-50 boundary; all 302 regional sufficiency assessments and global edge flags agree. Two global profile counts still differ slightly. Larger-corpus/device validation remains open. |
 | Full focus decisions and sharper/softer recommendations | Ready to replace the policy implementation with equivalent inputs | Full Swift port agrees on 151 frozen-image decisions/reasons and 106 synthetic cases. Native pixel replay also preserves all recommendations. Production integration is separate; larger-corpus/device validation remains open. |
-| SIFT supplementation | Retain existing implementation | Vision-only loses baseline links and a group in the current corpus; historical reviewed positives also need SIFT. No cutoff changes justified. |
+| SIFT supplementation | Swift-facing compiled implementation validated on macOS; retain production until app/device gate | Separate SIFTBridge wraps pinned OpenCV 4.11.0; all 11,325 pair decisions and raw evidence agree, restoring all three labeled SIFT-only links. iOS XCFramework/device validation remains open; no Python application runtime is required. See SIFT_GATE.md. |
 | Native homographic alternative | Retain SIFT; tested request fails replacement gate | All returned confidences are 1, including unrelated/featureless controls; known crops misalign. Padding removes dimension rejection but does not recover validated match evidence. See GEOMETRY_GATE.md; human labels and held-out correspondence/coverage validation precede any replacement. |
 | Face/body/animal/saliency and native quality evidence | Replace with limitations | Existing native evidence reused, including availability failure for unsupported aesthetics. No confidence-to-quality or aesthetic-to-merit equivalence assumed. iOS/iPadOS validation still needed. |
 | Scene classification | Requires further experimentation | Optional Vision labels are evidence, not validated category assignments; no labeled confusion matrix. |
@@ -32,7 +32,9 @@ Keep the scalar backend as a reference; mobile memory and thermal validation rem
 
 Human review confirms all three SIFT-only links: the accepted rule agrees on all
 eight decisive labels (one uncertain is excluded); Vision-only agrees on five.
-Next gate: expand labeled real crop/reframe/burst and confusing-negative cases. The tested
-homographic request does not replace SIFT; avoid tuning a residual threshold on
-these controls. Obtain the real 475-image manifest and labels before claiming full
-workflow parity. Device, RAW/high-depth and Photos/Photomator checks remain separate.
+Next gate: use full Xcode to build the prepared OpenCV XCFramework and a small
+consumer app, then verify matching parity and memory/thermal behavior on an actual
+iPhone/iPad. Keep the accepted production implementation until that gate passes.
+Expand labeled real crop/reframe/burst and confusing-negative cases before changing
+algorithms or thresholds. Obtain the real 475-image manifest before claiming full
+workflow parity. Photos, RAW/high-depth and broader app integration remain deferred.
