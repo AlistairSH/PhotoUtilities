@@ -21,7 +21,7 @@ parity. Keep the accepted pipeline as the working implementation.
 | Scene classification | Requires further experimentation | Optional Vision labels are evidence, not validated category assignments; no labeled confusion matrix. |
 | Foundation Models semantic/aesthetic assessment | Retain existing implementation (disabled in accepted pipeline) | No unvalidated local language-model output is introduced. Availability and image capability need explicit checks before any future use; Vision evidence is the current fallback. |
 | Tier ranking and standalone policy | Ready to replace the policy implementation with equivalent inputs | Full Swift port preserves tiers, explanations and ordering on the 151-image fixture and synthetic boundary cases. Full-batch references, ties, no quotas and advisory composition are unchanged. |
-| Review UI and orchestration | Retain existing implementation | The Swift computational core is validated separately; production HTML, SIFT orchestration, database and menu behavior are unchanged. |
+| Review UI and orchestration | Native file-analysis coordinator and Mac UI prototype implemented | The opt-in NativePhotoAnalysis actor preserves fresh 151-image decisions, pair evidence and ordering with progress/cancellation. Production HTML, database and menu remain unchanged; A local SwiftUI read-only file-review prototype is implemented; PhotoKit and device validation remain open. See COORDINATOR.md and UI.md. |
 | SQLite/history | Retain existing implementation | No portability blocker demonstrated; no experiment DB, schema or historical record changes. |
 | Scanner capture, splitting, fixed retouch and ICC | Retain existing implementation | Explicitly outside scope; no changes. |
 
@@ -38,3 +38,8 @@ iPhone/iPad. Keep the accepted production implementation until that gate passes.
 Expand labeled real crop/reframe/burst and confusing-negative cases before changing
 algorithms or thresholds. Obtain the real 475-image manifest before claiming full
 workflow parity. Photos, RAW/high-depth and broader app integration remain deferred.
+
+November 3 update: the live file-analysis coordinator passes the full current
+151-image / 11,325-pair comparison with zero decision/pair/rotation differences.
+It is available as a library for a first SwiftUI consumer. This does not remove
+the full-Xcode/device, mobile-memory, Photos or persistence gates above.

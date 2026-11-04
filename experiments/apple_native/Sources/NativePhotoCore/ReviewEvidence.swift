@@ -1,54 +1,54 @@
 import Foundation
 
-public struct ReviewMetric: Codable {
+public struct ReviewMetric: Codable, Sendable {
     public var laplacian_variance: Double
     public var tenengrad: Double
     public var pixels: Double?
 }
-public struct RegionMeasurement: Codable {
+public struct RegionMeasurement: Codable, Sendable {
     public var region: ReviewMetric?
     public var outside: ReviewMetric?
     public var region_to_outside: [String: Double?]
 }
-public struct ReviewRegion: Codable {
+public struct ReviewRegion: Codable, Sendable {
     public var id: String
     public var box: [Double]
     public var usable: Bool
     public var smoothed: RegionMeasurement?
 }
-public struct ReviewDetail: Codable {
+public struct ReviewDetail: Codable, Sendable {
     public var global: [String: ReviewMetric]
     public var tile_tenengrad: [Double]
     public var regions: [ReviewRegion]
 }
-public struct EdgeReviewSummary: Codable {
+public struct EdgeReviewSummary: Codable, Sendable {
     public var sufficient: Bool
     public var contrast_soft_fraction: Double?
 }
-public struct EdgeReviewRegion: Codable {
+public struct EdgeReviewRegion: Codable, Sendable {
     public var id: String
     public var box: [Double]
     public var metrics: EdgeReviewSummary
 }
-public struct ExposureEvidence: Codable {
+public struct ExposureEvidence: Codable, Sendable {
     public var global: Double
     public var subjects: [String: [Double]]
 }
-public struct FaceExpression: Codable {
+public struct FaceExpression: Codable, Sendable {
     public var hasSmile: Bool
     public var leftEyeClosed: Bool
     public var rightEyeClosed: Bool
     public var hasLeftEyePosition: Bool
     public var hasRightEyePosition: Bool
 }
-public struct RankingEvidence: Codable {
+public struct RankingEvidence: Codable, Sendable {
     public var status: String
     public var face_qualities: [Double]
     public var overallScore: Double?
     public var isUtility: Bool?
     public var faces: [FaceExpression]?
 }
-public struct ReviewScale: Codable {
+public struct ReviewScale: Codable, Sendable {
     public var path: String
     public var max_dimension: Int
     public var focus: ReviewDetail
@@ -58,20 +58,22 @@ public struct ReviewScale: Codable {
     public var ranking_native: RankingEvidence
     public var pixel_size: [Int]
 }
-public struct ReviewImage: Codable {
+public struct ReviewImage: Codable, Sendable {
     public var path: String
     public var ranking_native: RankingEvidence
 }
-public struct ReviewGroup: Codable {
+public struct ReviewGroup: Codable, Sendable {
+    public init(members: [Int], level: String) { self.members = members; self.level = level }
     public var members: [Int]
     public var level: String
 }
-public struct ReviewPair: Codable {
+public struct ReviewPair: Codable, Sendable {
+    public init(a: Int, b: Int, level: String) { self.a = a; self.b = b; self.level = level }
     public var a: Int
     public var b: Int
     public var level: String
 }
-public struct ReviewBatch: Codable {
+public struct ReviewBatch: Codable, Sendable {
     public var images: [ReviewImage]
     public var pairs: [ReviewPair]
     public var groups: [ReviewGroup]
@@ -115,3 +117,20 @@ public enum ReviewError: Error { case invalid(String) }
 
 func jsonObject<T: Encodable>(_ value: T) -> Any { try! JSONSerialization.jsonObject(with:JSONEncoder().encode(value)) }
 func present(_ value: Any?) -> Any { value ?? NSNull() }
+
+public extension ReviewImage {
+    init(path: String, ranking: RankingEvidence) { self.path = path; self.ranking_native = ranking }
+}
+public extension ReviewBatch {
+    init(images: [ReviewImage], pairs: [ReviewPair], scales: [ReviewScale]) throws {
+        guard !images.isEmpty, images.count <= 500, pairs.allSatisfy({
+            $0.a >= 0 && $0.a < $0.b && $0.b < images.count && ["likely","potential","unmatched"].contains($0.level)
+        }) else { throw ReviewError.invalid("Invalid batch identities or direct pair") }
+        self.images = images; self.pairs = pairs; self.focus_rows = scales
+        let components = Grouping.components(count:images.count,edges:pairs.filter { $0.level != "unmatched" }.map { ($0.a,$0.b) })
+        let strong = Grouping.components(count:images.count,edges:pairs.filter { $0.level == "likely" }.map { ($0.a,$0.b) })
+        self.groups = components.filter { $0.count > 1 }.map { ReviewGroup(members:$0,level:strong.contains($0) ? "likely" : "potential") }
+        self.unmatched = components.filter { $0.count == 1 }.flatMap { $0 }
+        try validate()
+    }
+}

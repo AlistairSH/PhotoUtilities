@@ -121,3 +121,17 @@ bundled notices cover Carotene, zlib and SoftFloat/fdlibm. Audit the actual depe
 build again before app distribution, especially if modules/third-party options
 change. Public references: [OpenCV SIFT](https://docs.opencv.org/4.11.0/d7/d60/classcv_1_1SIFT.html)
 and [upstream Apple builder](https://github.com/opencv/opencv/tree/4.11.0/platforms/apple).
+
+## App-facing analysis coordinator
+
+The additional **NativePhotoAnalysis** product exposes a serial Swift actor that
+connects live file analysis, SIFT and review policy, with typed review summaries,
+progress and cooperative cancellation. See [COORDINATOR.md](../COORDINATOR.md).
+`native-analyze` is its host validation adapter; `analysis-checks` exercises its
+input handling, live results, cancellation and source-change rejection. The
+NativeSIFT product remains independently usable.
+
+The **photo-review** executable is a SwiftUI Mac app using that service.
+`build_app.sh /absolute/path/New.app` creates a locally signed development bundle
+outside Git; see [the UI report](../UI.md). It currently selects files and provides
+read-only review; Photos and persistence are not implemented.

@@ -20,6 +20,24 @@ No push, PR or merge is authorized by this checkpoint request.
 Historical push authorizations applied to specific checkpoints and are not
 standing authorization for future pushes.
 
+## Native Apple app foundation — November 3, 2026
+
+Work continues locally on the existing unmerged `experiment/apple-native` branch.
+The opt-in `NativePhotoAnalysis` library now joins live file decoding, conservative
+orientation, Vision evidence, native SIFT, focus measurements, grouping and tier
+policy behind a serial Swift actor with progress and cooperative cancellation.
+Typed results retain caller identities, source checksums, rotations, review reasons
+and ranks within displayed sets, plus complete policy and pair evidence.
+See [the coordinator report](experiments/apple_native/COORDINATOR.md) for API,
+reproduction, current validation and remaining limits. The production CLI and
+SQLite remain unchanged. A local SwiftUI Mac prototype now selects files, runs
+analysis with progress/cancellation and browses tiered related sets. Version 0.2
+labels photos versus pairs explicitly, records phase timings, uses a scoped
+macOS user-initiated activity and canonicalizes file order to the CLI; see
+[the UI report](experiments/apple_native/UI.md). PhotoKit, persistence/resume and
+device validation are subsequent work; Photos integration is now an explicit long-term user goal.
+No push, merge or replacement of production behavior is part of this work.
+
 ## Common workflows and menu
 
 | Menu | Workflow |
@@ -205,3 +223,18 @@ No photographs, model weights or runtime environments are committed. Digital
 archival ingestion/RAW support, generic edits, Photos import/export and library
 interoperability, Photomator automation, capture-date overrides, mixed/overlapping
 sheet layouts, manual geometry correction, Shortcuts and watchers remain deferred.
+
+## Stopping checkpoint — November 3, 2026
+
+The user requested a local Git commit and stopping for the day on
+`experiment/apple-native`. Coordinator, SwiftUI prototype and progress/performance
+corrections are included; no push or merge is requested. The 151-photo /
+11,325-pair replay passes with zero decision/evidence/rotation differences and
+unchanged original checksums. The updated UI run took 2m 45s versus the reproduced
+7m 3s slow run; scheduling, input order and caches were not independently
+controlled, so the precise slowdown cause remains unproven.
+
+Resume with the version 0.2 UI and phase timings documented in
+`experiments/apple_native/UI.md`. Next product work is supported read-only Photos
+input, followed by saved reviews using the existing SQLite contract. Full Xcode,
+mobile builds/device behavior and memory/thermal validation remain open.

@@ -5,7 +5,8 @@ Unmerged research on `experiment/apple-native`, branched from `8809e81` on
 are unchanged. Nothing here moves, archives or deletes photos. No cloud inference,
 Photos-library access, external Swift dependencies or model download.
 
-Start with the latest [SIFT-for-Swift gate](SIFT_GATE.md),
+Start with the [native Mac UI](UI.md), the [native coordinator](COORDINATOR.md),
+the [SIFT-for-Swift gate](SIFT_GATE.md),
 the [native geometry gate](GEOMETRY_GATE.md),
 the [edge correction and performance report](EDGE_PERFORMANCE.md),
 the [decision-parity report](DECISION_PARITY.md),
@@ -14,7 +15,7 @@ the [decision-parity report](DECISION_PARITY.md),
 native image handling, global/regional focus measurements, Vision-only grouping,
 classification evidence, homographic registration, edge-profile measurement and
 complete focus/tier decision replay. It is **not yet a native replacement for the
-complete 475-image review workflow**. SIFT grouping and review HTML remain in the
+complete 475-image review workflow**. The opt-in coordinator now joins live file analysis and SIFT; production orchestration and review HTML remain in the
 accepted implementation; the decision-parity gate freezes that grouping and Vision
 evidence while testing the Swift measurement and policy core.
 

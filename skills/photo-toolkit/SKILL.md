@@ -63,3 +63,12 @@ remains the sole edit profile. `--open-review` starts explicit local cull contro
 Possible Cull is advisory and never an archive selection. Preserve originals,
 verified ZIP recovery and SQLite lineage. Use PhotoSamples for future validation.
 RestorationLab is separate and must not be routed into these ordinary workflows.
+
+## Native Mac prototype (November 3)
+
+The unmerged experiment/apple-native branch also has a separate SwiftUI file-review
+prototype, normally built outside Git at `/Users/alistairhastings/.codex/visualizations/2026/11/03/01a1a3b9-b444-79d1-b23a-a1f0e6227b1f/Photo Review Diagnostics.app`. See
+`experiments/apple_native/UI.md` for build and validation. Use it when the user
+explicitly asks for the native app; retain the CLI routes above for ordinary toolkit
+requests. The prototype has no Photos access, persistent review history, archive or
+restore actions and must not be presented as replacing the complete CLI workflow.
