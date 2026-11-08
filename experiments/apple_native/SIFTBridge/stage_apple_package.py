@@ -32,7 +32,7 @@ def stage(framework, output):
         if framework not in path.parents or not path.exists():
             raise ValueError('Missing or invalid library path in XCFramework')
     # Copy the analysis package too: the optional CLI depends on its Grouping API.
-    shutil.copytree(source,output,ignore=shutil.ignore_patterns('.build','.swiftpm','__pycache__','Artifacts'))
+    shutil.copytree(source,output,ignore=shutil.ignore_patterns('.build','.swiftpm','__pycache__','.DS_Store','Artifacts'))
     artifacts=output/'SIFTBridge/Artifacts';artifacts.mkdir()
     shutil.copytree(framework,artifacts/'opencv2.xcframework')
     return output/'SIFTBridge'

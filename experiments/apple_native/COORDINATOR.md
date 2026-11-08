@@ -48,10 +48,9 @@ are released before ranking. Pair records still grow quadratically. This is a
 bounded decoding strategy, not a demonstrated mobile memory ceiling.
 
 The first adapter accepts 1–500 distinct local JPEG, HEIC/HEIF, PNG or single-image
-TIFF files with distinct caller IDs. Multi-image sources fail explicitly. A future
-PhotoKit adapter can map asset identities and provide pixels, but this milestone's
-`analyze` method still requires local file URLs. It does not implement PhotoKit or
-claim that a Photos asset can be treated as a filesystem path. The caller owns
+TIFF files with distinct caller IDs. Multi-image sources fail explicitly. The
+Mac app's Photos picker stages selected images as temporary local files for this
+API. The caller owns
 security-scoped access for the entire operation. SHA-256 checks before and after
 analysis reject changed sources; they do not lock files against concurrent writers
 or prevent an external change immediately after final verification.
@@ -143,10 +142,7 @@ The completion summary binds the baseline and binary hashes; the compiled binary
 has no Python dynamic dependency. The final binary SHA-256 is
 `f1c0d772b1fa79af94955f37e799d3c564b50264c26bf27addf76052c00048fa`.
 
-The first SwiftUI Mac consumer is now implemented; see [UI.md](UI.md).
-Next: full-Xcode framework/device builds and read-only PhotoKit adaptation. Saved reviews/SQLite, archive/restore, scanner
-workflows and high-depth edits remain separate integration work. A local Git checkpoint was authorized on November 3; no push or merge was requested.
-
-The progress-label investigation adds optional per-phase/total timings to
-AnalysisResult. Pair counts remain unchanged and the complete algorithm is still
-read-only. See UI.md for the corrected distinction between photos and pairs.
+[Framewise](UI.md) uses the coordinator for files and images selected with the
+system Photos picker. The coordinator reads source files and returns optional
+per-phase and total timings. Confirmed deletion is handled separately by the
+app. Saved reviews and mobile validation remain open.

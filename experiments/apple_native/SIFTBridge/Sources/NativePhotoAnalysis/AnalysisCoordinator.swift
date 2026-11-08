@@ -22,6 +22,10 @@ public struct AnalyzedSource: Sendable, Codable {
     public let sha256: String
     public let rotation: RotationEvidence
     public let siftKeypoints: Int
+
+    public func matchesFile() throws -> Bool {
+        try AnalysisCoordinator.digest(input.url, checkpoint: { try Task.checkCancellation() }) == sha256
+    }
 }
 public struct PhotoReview: Sendable, Codable {
     public let sourceID: String
@@ -189,7 +193,7 @@ public actor AnalysisCoordinator {
         return result
     }
 
-    private static func digest(_ url: URL, checkpoint: () throws -> Void) throws -> String {
+    fileprivate static func digest(_ url: URL, checkpoint: () throws -> Void) throws -> String {
         let file = try FileHandle(forReadingFrom:url)
         defer { try? file.close() }
         var hash = SHA256()

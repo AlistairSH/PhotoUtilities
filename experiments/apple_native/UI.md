@@ -1,21 +1,26 @@
-# Native Mac review prototype — November 3, 2026
+# Framewise macOS app
 
-The `photo-review` executable is the first SwiftUI consumer of NativePhotoAnalysis.
-A local app bundle is generated outside Git at:
-`/Users/alistairhastings/.codex/visualizations/2026/11/03/01a1a3b9-b444-79d1-b23a-a1f0e6227b1f/Photo Review Diagnostics.app`.
-
-The diagnostics build is version 0.2 with corrected progress labels and phase timings.
-The original app is retained so an existing in-memory review is not closed.
+Framewise is the SwiftUI app built on NativePhotoAnalysis. See the
+[project README](../../README.md) for a quick start.
 
 ## Current experience
 
-Choose up to 500 JPEG, HEIC/HEIF, PNG or single-image TIFF files using the native
-file picker, choose whether to apply conservative visual rotation, then Analyze.
-The app displays progress and allows cooperative cancellation. Successful results
+Use **Choose Files…** or **Choose from Photos…** to select up to 500 JPEG,
+HEIC/HEIF, PNG or single-image TIFF images. Set **Auto-rotate** before choosing a
+batch. Scanning starts when you confirm the selection. **Stop Scan** cancels
+loading or analysis. Successful results
 show related sets and an ungrouped set in the sidebar, tier totals, ordered photo
 cards, focus notes, positive and advisory reasons, applied rotations and ranks
 within displayed sets. Subject boxes can be toggled with the accepted legend.
-Show in Finder reveals the original selected file.
+Show in Finder reveals the original for selections made through the file picker.
+
+The macOS system Photos picker supplies only explicitly selected items. Framewise
+requests their current image representations. The app loads
+these in selection order, stages byte-for-byte copies for the same analysis
+coordinator, and keeps the copies available for review previews. Staged copies
+are removed on replacement selection or normal app exit. A failed or cancelled
+load discards the new batch and leaves the previous selection or review available.
+The Photos picker may need to retrieve an image that is stored in iCloud.
 
 Previews are bounded to 640 pixels, loaded off MainActor through a serial thumbnail
 actor, with a 64 MiB cost-limited cache. Their embedded orientation and the analysis
@@ -28,37 +33,38 @@ late callbacks cannot overwrite a completed result. File selection and analysis
 options are disabled during a run. Security-scoped URL access is retained until
 replacement selection or application exit. Results live in memory only.
 
-The app has no Photos permissions/access, saved reviews, database writes, archive,
-delete or editing actions. All source photographs remain read-only. The existing
-Python CLI and analysis engine algorithms are unchanged. The prototype currently
-supports macOS 15+, not iOS/iPadOS; shared libraries retain their separate declared
-platform availability and device-validation limits.
+**Zoom…** on each card opens a full-resolution preview
+with Fit, 100%, 200% and 400% views. Scroll to inspect different parts of the
+image. The app decodes one full-resolution preview at a time.
 
-The earlier test bundle under `../NativeApps/` is retained as a development artifact;
-iCloud adds Finder metadata there that causes strict signature verification to fail.
-Use the local artifact above, or build to a new folder outside iCloud.
+**Delete…** asks for confirmation. A file selection goes to the Mac Trash
+after the app checks that its contents still match the analyzed file.
+The remaining cards keep their analysis and update their displayed counts and
+ranks. Click **Scan Again** to recompute the review for the remaining photos.
+In the Photos-enabled build, **Delete…** moves the confirmed asset to Recently
+Deleted using its Photos identifier and macOS authorization. Restore library
+items in Photos or use **Put Back** in Finder for files moved to Trash.
+
+Open **Help → Framewise Help** to search topics inside the app. The Help menu also
+lists individual topics. Use **Window → Show Framewise** to restore the main
+review window after it has been minimized, hidden or closed.
 
 ## Build
 
-With the pinned local OpenCV dependency prepared:
+Follow the [project build instructions](../../README.md#build-and-run).
+`build_app.sh` packages the SwiftPM `Framewise` executable and generates
+`AppIcon.icns` from the approved `Resources/AppIcon.png`. The bundle identifier
+is `local.photoutilities.review`. The `--enable-photos-delete` option adds the
+Photos usage description and Photos-library entitlement when signing.
 
-```sh
-OPENCV_ROOT=/path/to/opencv/install \
-SIFT_BUILD_ROOT=/private/tmp/photo-review-build \
-experiments/apple_native/SIFTBridge/build_app.sh "/absolute/path/New Photo Review.app"
-```
-
-The destination must be a new absolute `.app` path; the script refuses occupied
-paths and symlinks. It compiles, creates the bundle, removes inherited metadata
-from that newly generated bundle and ad-hoc signs/verifies it. Binaries, caches,
-build logs and app bundles stay outside Git. This is a local development bundle,
-not a notarized or App Store distribution build. Full Xcode remains required for
-the planned Apple-platform app/device build and distribution work.
+The script requires a new absolute `.app` path and refuses occupied paths.
+Use a destination outside Git and iCloud. The script removes inherited metadata
+from the newly generated bundle before signing and verifying it. This is a local
+development build. Full Xcode remains necessary for device and distribution work.
 
 The installed Command Line Tools SDK declares both a State macro and the standard
-State property wrapper but lacks the SwiftUIMacros compiler plugin. A public type
-alias selects the standard property-wrapper type explicitly; no private SwiftUI
-API is used. No toolkit installation or developer-directory change is needed.
+State property wrapper but lacks the SwiftUIMacros compiler plugin. The app's
+`ViewState` type alias explicitly selects the standard property wrapper.
 
 ## Validation
 
@@ -72,11 +78,27 @@ copy checksums are verified separately. That initial run was a small UI smoke te
 investigation is recorded below; device validation remains open. The coordinator's earlier full 151-photo
 parity result remains documented in COORDINATOR.md.
 
-Next: read-only PhotoKit input, followed by persisted reviews through the existing
-SQLite contract. Mobile builds, permissions and memory/thermal validation remain
-open. A local Git checkpoint was authorized on November 3; no push or merge was requested.
+Saved reviews, mobile builds and memory/thermal validation remain open.
 
-## Progress-label correction and timing investigation
+For version 0.3, the signed app opened the system picker and displayed its
+selected-items privacy notice. A local file-provider test transferred five
+disposable JPEG and HEIC fixtures through the app's transfer representation.
+The staged bytes matched the source bytes, and all five review results and ten
+pair records matched direct-file analysis after normalizing paths and excluding
+timings. The test also checked staging cleanup, unreadable-file rejection and a
+cancelled staging task.
+
+A live six-photo review produced the expected two groups. The four runner
+photos delivered by the picker were Display P3 HEIC files. Their corresponding
+disk files were JPEGs with the Apple Wide Color Sharing Profile. A replay in
+the same input order reproduced one additional Possible Cull on the HEIC
+representation. The difference came from a peer crossing the 1.5× threshold
+on both subject-detail measures. For a parity check, compare the same image
+representation in the same order and with the same auto-rotate setting. A follow-up
+using HEIF exports matched the Photos picker results for all six images. The user
+also confirmed the zoom, deletion, and equal-height card tests.
+
+## November 3 progress and timing investigation
 
 The original prototype displayed the matching phase as “Comparing photos” while
 its counter actually represented pairs. For 151 selected photos, the engine checks

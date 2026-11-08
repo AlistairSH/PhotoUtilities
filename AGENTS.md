@@ -3,33 +3,32 @@
 ## Start with current state
 
 Read `PROJECT.md` before implementation and preserve confirmed user decisions.
-`README.md` documents actual commands; `PROJECT.md` distinguishes implemented,
-experimental and deferred scope. Files under `experiments/*HISTORY*` and dated
-implementation reports are historical evidence, not current instructions or tasks.
-Inspect current CLI/code before editing; preserve unrelated user work. Keep a short
-plan for multi-step changes and complete authorized implementation and verification.
+`README.md` documents Framewise, the primary macOS app. `CLI.md` covers
+`photo-utils` scanner and batch workflows. Treat dated experiment reports as
+historical evidence. Inspect current code before editing and preserve unrelated
+user work. Keep a short plan for multi-step changes and verify the result.
 
 ## Local development and authorization
 
-- Work locally on a dedicated development branch. Current integration is on
-  `experiment/ranking-culling`; keep `main` unchanged until explicitly authorized.
-  The user authorized the RestorationLab commit and then the completed CLI
-  integration/report/documentation checkpoint followed by an exact committed-code
-  PhotoSamples report run; no push, PR or merge is authorized.
-  Earlier checkpoint push permissions do not authorize future pushes. Do not
-  create a new remote; the repository already has one.
+- Work locally on a dedicated development branch. Framewise development is on
+  `experiment/apple-native`. Keep `main` unchanged. Obtain explicit authorization
+  for a commit, push, PR or merge when the current request has not authorized it.
+  Earlier checkpoint permissions do not apply to later work. Use the existing
+  remote.
 - Production image processing and metadata remain offline/local. No telemetry,
   accounts, paid services, hosted image inference or private-photo uploads.
   Public documentation and routine development dependency downloads are allowed;
   private photos/previews must not be sent with those requests.
 - Keep photo data, generated reports, DBs, caches, binaries and model weights outside
   Git. Documents may be iCloud-synced; do not equate its pathname with local storage.
-- Extend the existing Python CLI and small modules. Reuse configuration, locks,
-  persistence and logging; avoid unrelated refactoring or dependency changes.
-  Use the project virtual environment; preserve Python 3.9 compatibility and strict
+- Make app changes in SwiftUI and reuse the native analysis packages. Keep
+  Python out of the Framewise runtime. Use the existing build scripts and native
+  verification executables.
+- For scanner and batch CLI work, reuse configuration, locks, persistence and
+  logging. Use the project virtual environment and preserve Python 3.9 and strict
   Pyright. Never replace system Python or use sudo pip for project setup.
 
-## User workflows
+## Scanner and batch CLI workflows
 
 - Natural-language “process these folders” maps to `photo-utils process TARGET...`;
   use recursion only when requested or consistent with the intended folder tree.
@@ -99,10 +98,15 @@ plan for multi-step changes and complete authorized implementation and verificat
 - Back up SQLite before schema changes. Use versioned migrations, transactions,
   foreign keys and indexed lineage; preserve parameters, metadata, tool versions
   and old records. Never reset a DB/counter to bypass an error.
-- Never modify Apple Photos library internals. Future integration requires supported
-  local interfaces and explicit import actions; it is not implemented now.
+- Use the system Photos picker and supported PhotoKit interfaces. Framewise may
+  move an explicitly selected and confirmed asset to Recently Deleted with Photos
+  permission. Never modify Apple Photos library internals.
 
 ## Explicit reversible culling
+
+Framewise uses the Mac Trash for confirmed file removal and Photos Recently
+Deleted for confirmed library removal. Preserve file identity checks and
+the picker asset identifier. The following archive/restore rules apply to the CLI.
 
 - Only manual Delete selections followed by archive confirmation may move images,
   companions and tracked descendants. A tier, score, note, model suggestion or
@@ -132,16 +136,15 @@ similarly named photos. Use isolated SQLite and disposable copies for mutation t
 
 Latest acquisition-wrapper hardware validation, ordinary-print physical scans,
 higher DPI, calibrated colour, broad orientation/ranking accuracy, RAW decoding and
-Photos round trips remain unverified. Do not infer hardware success from mocks.
-Keep generic edits, RAW/digital archival ingestion, Photos/Photomator integration,
-manual geometry correction, mixed/touching layouts, Shortcuts and watchers deferred
-until requested. Do not add a background watcher or public service incidentally.
+Photos import/export round trips remain unverified. Do not infer hardware success
+from mocks. Keep generic edits, RAW/digital archival ingestion, Photos import/export,
+Photomator automation, manual geometry correction, mixed/touching layouts, Shortcuts
+and watchers deferred until requested. Do not add a background watcher or public service incidentally.
 
 RestorationLab source is versioned under `RestorationLab/` as a related but
 separate, effectively complete tool for occasional use. Its working private data,
 weights and isolated runtime remain in sibling `../RestorationLab`; outputs stay
 in `../Restored`. Do not add them to Git or integrate restoration into the main
 CLI, menu, pipeline or installation dependencies. Its separate batch manifests
-remain part of that tool, not routine main-CLI metadata. Maintain README/PROJECT and the repository skill when
-implemented scope changes; preserve research history without presenting it as live
-CLI behavior.
+remain part of that tool. Update README, PROJECT, CLI and the repository skill
+when implemented scope changes. Preserve dated research history.

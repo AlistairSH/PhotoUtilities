@@ -1,23 +1,19 @@
-# Apple-native digital-photo experiment
+# Framewise native analysis and research
 
-Unmerged research on `experiment/apple-native`, branched from `8809e81` on
-`experiment/ranking-culling`. Production Python, scanner, dependencies and SQLite
-are unchanged. Nothing here moves, archives or deletes photos. No cloud inference,
-Photos-library access, external Swift dependencies or model download.
+The Swift packages here power [Framewise](../../README.md). NativePhotoCore
+implements image handling, Apple Vision evidence, focus measurements, grouping
+and tier policy. SIFTBridge adds OpenCV matching and the NativePhotoAnalysis
+coordinator. Framewise uses the system Photos picker and, in the Photos-enabled
+build, PhotoKit for confirmed deletion. The analysis packages operate on selected
+files and do not modify them.
 
-Start with the [native Mac UI](UI.md), the [native coordinator](COORDINATOR.md),
-the [SIFT-for-Swift gate](SIFT_GATE.md),
-the [native geometry gate](GEOMETRY_GATE.md),
-the [edge correction and performance report](EDGE_PERFORMANCE.md),
-the [decision-parity report](DECISION_PARITY.md),
-[dependency audit](AUDIT.md), initial [comparison findings](FINDINGS.md) and
-[migration recommendation](MIGRATION.md). The selected implementation investigates
-native image handling, global/regional focus measurements, Vision-only grouping,
-classification evidence, homographic registration, edge-profile measurement and
-complete focus/tier decision replay. It is **not yet a native replacement for the
-complete 475-image review workflow**. The opt-in coordinator now joins live file analysis and SIFT; production orchestration and review HTML remain in the
-accepted implementation; the decision-parity gate freezes that grouping and Vision
-evidence while testing the Swift measurement and policy core.
+See the [app guide](UI.md) and [coordinator](COORDINATOR.md) for current usage and
+validation. Historical evidence includes the [SIFT gate](SIFT_GATE.md),
+[geometry gate](GEOMETRY_GATE.md), [edge correction](EDGE_PERFORMANCE.md),
+[decision parity](DECISION_PARITY.md), [dependency audit](AUDIT.md), and initial
+[comparison findings](FINDINGS.md). The [migration status](MIGRATION.md)
+distinguishes adopted and pending work. Scanner and batch workflows are
+documented in the [CLI guide](../../CLI.md).
 
 ## Build and verification
 

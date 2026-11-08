@@ -18,6 +18,8 @@ def main():
         else: raise AssertionError('Recursive artifact copy allowed')
         package=stage(framework,root/'staged')
         assert (package/'Sources/NativeSIFT/SIFT.swift').exists()
+        assert (package/'Sources/Framewise/FramewiseApp.swift').is_file()
+        assert (package/'Resources/AppIcon.png').is_file()
         assert (package/'Artifacts/opencv2.xcframework/Info.plist').exists()
         assert (package.parent/'Sources/NativePhotoCore/Grouping.swift').exists()
         try: stage(framework,root/'staged')

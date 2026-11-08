@@ -1,42 +1,30 @@
-# PhotoUtilities — current project state
+# PhotoUtilities project status
 
-Updated October 17, 2026. [README.md](README.md) documents operation;
-[AGENTS.md](AGENTS.md) governs development. Dated decisions and earlier validation
-are preserved in [project history](experiments/PROJECT_HISTORY_20261017.md).
+Updated November 8, 2026. [README.md](README.md) covers Framewise usage and builds.
+[CLI.md](CLI.md) covers scanner and batch workflows. [AGENTS.md](AGENTS.md) governs
+development. Earlier decisions are preserved in [project history](experiments/PROJECT_HISTORY_20261017.md).
 
-## Status and scope
+## Framewise for macOS
 
-PhotoUtilities is an offline Mac Python CLI for Canon LiDE 400 sheet acquisition,
-print separation/rectification, conservative visual quarter-turns, related-photo
-grouping, three-tier selection review, optional Polaroid TIFF editing and explicit
-reversible culling. SQLite records jobs, assets, recipes, checksums and lineage.
+Framewise is the primary app on `experiment/apple-native`. Its SwiftUI interface
+uses the NativePhotoAnalysis coordinator to decode and orient photos, gather Apple
+Vision and SIFT evidence, measure focus, group related shots, and rank the review.
+It supports disk files and Photos picker selections, automatic start and
+cancellation, processing times, subject boxes, full-resolution zoom, and searchable
+in-app Help. Confirmed deletion moves files to Trash and, with the Photos entitlement
+and permission, moves Photos library items to Recently Deleted.
 
-The user has reviewed and accepted the integrated workflow and report refinements.
-The current implementation is on `experiment/ranking-culling`, not yet merged
-into `main`. The user authorized committing the completed CLI integration, report
-refinements and documentation, then validating an exact committed-code report on
-PhotoSamples. RestorationLab was separately committed as a related tool.
-No push, PR or merge is authorized by this checkpoint request.
-Historical push authorizations applied to specific checkpoints and are not
-standing authorization for future pushes.
+Reviews live in memory for the session. Saved reviews and device validation remain
+open. See [the app guide](experiments/apple_native/UI.md) and
+[coordinator validation](experiments/apple_native/COORDINATOR.md).
 
-## Native Apple app foundation — November 3, 2026
+## PhotoUtilities scanner and batch CLI
 
-Work continues locally on the existing unmerged `experiment/apple-native` branch.
-The opt-in `NativePhotoAnalysis` library now joins live file decoding, conservative
-orientation, Vision evidence, native SIFT, focus measurements, grouping and tier
-policy behind a serial Swift actor with progress and cooperative cancellation.
-Typed results retain caller identities, source checksums, rotations, review reasons
-and ranks within displayed sets, plus complete policy and pair evidence.
-See [the coordinator report](experiments/apple_native/COORDINATOR.md) for API,
-reproduction, current validation and remaining limits. The production CLI and
-SQLite remain unchanged. A local SwiftUI Mac prototype now selects files, runs
-analysis with progress/cancellation and browses tiered related sets. Version 0.2
-labels photos versus pairs explicitly, records phase timings, uses a scoped
-macOS user-initiated activity and canonicalizes file order to the CLI; see
-[the UI report](experiments/apple_native/UI.md). PhotoKit, persistence/resume and
-device validation are subsequent work; Photos integration is now an explicit long-term user goal.
-No push, merge or replacement of production behavior is part of this work.
+The separate offline CLI supports Canon LiDE 400 sheet acquisition, print
+separation and rectification, visual quarter-turns, related-photo grouping,
+three-tier HTML review, the fixed Polaroid TIFF recipe, and explicit reversible
+archiving. SQLite records jobs, assets, recipes, checksums and lineage. The
+following sections describe the CLI unless they name Framewise.
 
 ## Common workflows and menu
 
@@ -223,18 +211,3 @@ No photographs, model weights or runtime environments are committed. Digital
 archival ingestion/RAW support, generic edits, Photos import/export and library
 interoperability, Photomator automation, capture-date overrides, mixed/overlapping
 sheet layouts, manual geometry correction, Shortcuts and watchers remain deferred.
-
-## Stopping checkpoint — November 3, 2026
-
-The user requested a local Git commit and stopping for the day on
-`experiment/apple-native`. Coordinator, SwiftUI prototype and progress/performance
-corrections are included; no push or merge is requested. The 151-photo /
-11,325-pair replay passes with zero decision/evidence/rotation differences and
-unchanged original checksums. The updated UI run took 2m 45s versus the reproduced
-7m 3s slow run; scheduling, input order and caches were not independently
-controlled, so the precise slowdown cause remains unproven.
-
-Resume with the version 0.2 UI and phase timings documented in
-`experiments/apple_native/UI.md`. Next product work is supported read-only Photos
-input, followed by saved reviews using the existing SQLite contract. Full Xcode,
-mobile builds/device behavior and memory/thermal validation remain open.

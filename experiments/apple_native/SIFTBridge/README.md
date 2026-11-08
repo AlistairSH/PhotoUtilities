@@ -8,7 +8,7 @@ access. The CLI and Python comparison scripts are separate macOS research tools.
 The Swift package declares macOS 14 / iOS 17 (including iPadOS). **Only arm64 macOS
 has been compiled and run here.** Full Xcode, iOS SDKs and physical-device validation
 are unavailable on this host. The XCFramework build path below is prepared, not
-claimed as a successful device build. Photos support remains future work.
+claimed as a successful device build.
 
 ## API
 
@@ -70,7 +70,7 @@ core, imgproc, features2d, flann and calib3d, plus bundled zlib and Carotene HAL
 Image codecs, Python bindings, Java, video backends and nonfree modules are disabled.
 Some unrelated upstream data/notices may be installed; none is an application
 runtime requirement. The local-prefix manifest uses unsafe include/link flags and
-is intended for this research checkout, not distribution as a remote Swift package.
+is intended for builds from a local checkout.
 
 ## Apple XCFramework path (requires full Xcode)
 
@@ -131,7 +131,7 @@ progress and cooperative cancellation. See [COORDINATOR.md](../COORDINATOR.md).
 input handling, live results, cancellation and source-change rejection. The
 NativeSIFT product remains independently usable.
 
-The **photo-review** executable is a SwiftUI Mac app using that service.
-`build_app.sh /absolute/path/New.app` creates a locally signed development bundle
-outside Git; see [the UI report](../UI.md). It currently selects files and provides
-read-only review; Photos and persistence are not implemented.
+**Framewise** is the SwiftUI macOS app built from the `Framewise` executable.
+Use the [project build instructions](../../../README.md#build-and-run) to make a
+locally signed bundle with Photos deletion enabled. See the
+[app guide](../UI.md) for behavior and validation.
