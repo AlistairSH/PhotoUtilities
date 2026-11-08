@@ -3,7 +3,7 @@ import Photos
 import NativePhotoAnalysis
 
 enum ReviewRemoval {
-    static var photosDeletionEnabled: Bool {
+    static var photosLibraryAccessEnabled: Bool {
         Bundle.main.object(forInfoDictionaryKey: "NSPhotoLibraryUsageDescription") != nil
     }
 
@@ -23,13 +23,17 @@ enum ReviewRemoval {
         try FileManager.default.trashItem(at: url, resultingItemURL: nil)
     }
 
-    static func deleteFromPhotos(identifier: String) async throws {
-        guard photosDeletionEnabled else { throw RemovalError.accessDenied }
+    static func authorizePhotosAccess() async throws {
+        guard photosLibraryAccessEnabled else { throw RemovalError.accessDenied }
         var access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if access == .notDetermined {
             access = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         }
         guard access == .authorized || access == .limited else { throw RemovalError.accessDenied }
+    }
+
+    static func deleteFromPhotos(identifier: String) async throws {
+        try await authorizePhotosAccess()
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject,
               asset.canPerform(.delete) else { throw RemovalError.assetUnavailable }
         try await PHPhotoLibrary.shared().performChanges {

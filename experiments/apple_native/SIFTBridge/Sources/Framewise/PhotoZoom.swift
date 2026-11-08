@@ -3,6 +3,7 @@ import NativePhotoAnalysis
 
 struct PhotoZoom: View {
     let source: AnalyzedSource
+    let turns: Int
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
     @ViewState private var image: CGImage?
@@ -57,7 +58,7 @@ struct PhotoZoom: View {
         .task {
             do {
                 let loaded = try await Thumbnails.shared.image(url: source.input.url,
-                    turns: source.rotation.quarter_turns_clockwise, checksum: source.sha256, fullResolution: true)
+                    turns: turns, checksum: source.sha256, fullResolution: true)
                 try Task.checkCancellation()
                 image = loaded
             } catch is CancellationError {

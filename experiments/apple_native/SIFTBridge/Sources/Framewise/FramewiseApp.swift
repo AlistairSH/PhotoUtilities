@@ -21,7 +21,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     @Published var phaseTitle = "Step 1 of 5 · Check selected photos"
     @Published var startedAt: Date?
     @Published var error: String?
-    @Published var autoRotate = true
+    @Published private(set) var savingRotation = false
+    @Published private var rotations: [String: ReviewRotation] = [:]
+    @Published private var savedInputURLs: Set<URL> = []
     @Published private(set) var deleting = false
     @Published private(set) var removedURLs: Set<URL> = []
     private let coordinator = AnalysisCoordinator()
@@ -31,9 +33,11 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     private var pickedFiles: [PickedPhotoFile] = []
     private var assetIdentifiers: [URL: String] = [:]
     private var photosTransfer: Progress?
+    private var photosLoadedAt = Date()
+    private var photosSavedAt: [String: Date] = [:]
 
     var isPhotosSelection: Bool { !pickedFiles.isEmpty }
-    var busy: Bool { running || deleting }
+    var busy: Bool { running || deleting || savingRotation }
 
     var sets: [[Int]] {
         guard let result else { return [] }
@@ -61,6 +65,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     func loadPhotos(_ selection: [PhotosPickerItem]) {
         guard !busy, !selection.isEmpty else { return }
         let previousStatus = status
+        let loadedAt = Date()
         generation = UUID()
         running = true; cancelling = false; error = nil; fraction = 0
         phaseTitle = "Load selected photos"
@@ -100,6 +105,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 scoped = []
                 pickedFiles = loaded
                 assetIdentifiers = identifiers
+                photosLoadedAt = loadedAt
                 setInputs(loaded.map(\.url))
                 await scan()
             } catch {
@@ -113,6 +119,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 
     private func setInputs(_ urls: [URL]) {
         inputs = urls
+        rotations = [:]
+        photosSavedAt = [:]
+        savedInputURLs = []
         removedURLs = []
         result = nil; selectedSet = 0; error = nil
         status = "\(inputs.count) photos ready"
@@ -139,7 +148,10 @@ typealias ViewState<Value> = SwiftUI.State<Value>
             return
         }
         generation = UUID()
-        let runID = generation, urls = inputs, rotate = autoRotate
+        let runID = generation, urls = inputs
+        let analysisInputs = urls.map {
+            AnalysisInput(id: $0.absoluteString, url: $0, keepsEmbeddedOrientation: savedInputURLs.contains($0) ? true : nil)
+        }
         cancelling = false; error = nil; result = nil; fraction = 0
         removedURLs = []
         status = "Preparing analysis…"
@@ -148,7 +160,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
             reason:"Review user-selected photos")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         do {
-            let value = try await coordinator.analyze(urls.map { AnalysisInput(id:$0.absoluteString,url:$0) },autoRotate:rotate) { progress in
+            let value = try await coordinator.analyze(analysisInputs) { progress in
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == runID, self.running, !self.cancelling else { return }
                     let title: String, detail: String
@@ -179,6 +191,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 }
             }
             try Task.checkCancellation()
+            rotations = [:]
             result = value; selectedSet = 0
             status = "\(value.photos.count) photos reviewed in \(duration(value.timings?["total"] ?? 0))"
         } catch is CancellationError {
@@ -195,13 +208,76 @@ typealias ViewState<Value> = SwiftUI.State<Value>
         photosTransfer?.cancel()
     }
 
+    func rotation(for source: AnalyzedSource) -> ReviewRotation {
+        rotations[source.input.id] ?? ReviewRotation(source: source)
+    }
+
+    func rotateLeft(_ source: AnalyzedSource) {
+        guard !busy else { return }
+        var draft = rotation(for: source)
+        draft.rotateLeft()
+        rotations[source.input.id] = draft
+    }
+
+    func wasRotationSaved(_ source: AnalyzedSource) -> Bool {
+        savedInputURLs.contains((rotation(for: source).savedSource ?? source).input.url)
+    }
+
+    func canSaveRotation(_ source: AnalyzedSource) -> Bool {
+        let draft = rotation(for: source)
+        let url = (draft.savedSource ?? source).input.url
+        return !busy && inputs.contains(url) && draft.pendingTurns != 0
+            && (!isPhotosSelection || (ReviewRemoval.photosLibraryAccessEnabled && assetIdentifiers[url] != nil))
+    }
+
+    func saveRotation(_ source: AnalyzedSource) {
+        guard canSaveRotation(source) else { return }
+        var draft = rotation(for: source)
+        let current = draft.savedSource ?? source
+        let url = current.input.url
+        let turns = draft.pendingTurns
+        let identifier = assetIdentifiers[url]
+        savingRotation = true
+        Task {
+            defer { savingRotation = false }
+            do {
+                let updated: AnalyzedSource
+                if let identifier {
+                    let (saved, copy) = try await ReviewRotation.savePhotos(current, identifier: identifier,
+                        turns: turns, loadedAt: photosSavedAt[identifier] ?? photosLoadedAt)
+                    updated = saved
+                    pickedFiles.removeAll { $0.url == url }
+                    pickedFiles.append(copy)
+                    assetIdentifiers.removeValue(forKey: url)
+                    assetIdentifiers[copy.url] = identifier
+                    photosSavedAt[identifier] = Date()
+                    inputs = inputs.map { $0 == url ? copy.url : $0 }
+                } else {
+                    updated = try await Task.detached(priority: .userInitiated) {
+                        try ReviewRotation.saveFile(current, turns: turns)
+                    }.value
+                }
+                savedInputURLs.remove(url)
+                savedInputURLs.insert(updated.input.url)
+                draft.didSave(updated)
+                rotations[source.input.id] = draft
+                status = "Saved rotation to \(identifier == nil ? "file" : "Photos")"
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
     func canDelete(_ source: AnalyzedSource) -> Bool {
-        !busy && (!isPhotosSelection || (ReviewRemoval.photosDeletionEnabled && assetIdentifiers[source.input.url] != nil))
+        let url = (rotation(for: source).savedSource ?? source).input.url
+        return !busy && inputs.contains(url)
+            && (!isPhotosSelection || (ReviewRemoval.photosLibraryAccessEnabled && assetIdentifiers[url] != nil))
     }
 
     func delete(_ source: AnalyzedSource) {
-        let url = source.input.url
-        guard canDelete(source), inputs.contains(url) else { return }
+        guard canDelete(source) else { return }
+        let current = rotation(for: source).savedSource ?? source
+        let url = current.input.url
         let identifier = assetIdentifiers[url]
         deleting = true
         Task {
@@ -215,7 +291,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                     for url in removed { assetIdentifiers.removeValue(forKey: url) }
                     status = "Moved to Recently Deleted"
                 } else {
-                    try await Task.detached(priority: .userInitiated) { try ReviewRemoval.trash(source) }.value
+                    try await Task.detached(priority: .userInitiated) { try ReviewRemoval.trash(current) }.value
                     removed = [url]
                     if let index = scoped.firstIndex(of: url) {
                         scoped.remove(at: index).stopAccessingSecurityScopedResource()
@@ -223,7 +299,11 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                     status = "Moved to Trash"
                 }
                 inputs.removeAll { removed.contains($0) }
-                removedURLs.formUnion(removed)
+                let reviewed = result?.sources.filter {
+                    removed.contains((rotation(for: $0).savedSource ?? $0).input.url)
+                } ?? []
+                removedURLs.formUnion(reviewed.map(\.input.url))
+                savedInputURLs.subtract(removed)
                 if inputs.isEmpty {
                     result = nil
                     selectedSet = 0
@@ -297,11 +377,31 @@ struct PhotoCard: View {
     let fromPhotos: Bool
     let rank: Int
     let setSize: Int
+    let rotation: ReviewRotation
+    let rotationSaved: Bool
+    let rotateLeft: () -> Void
+    let saveRotation: () -> Void
+    let canRotate: Bool
+    let canSaveRotation: Bool
     let openZoom: () -> Void
     let requestDelete: () -> Void
     let canDelete: Bool
     @ViewState private var thumbnail: CGImage?
     @ViewState private var unavailable = false
+
+    private var previewSource: AnalyzedSource { rotation.savedSource ?? source }
+    private var boxTurns: Int { (rotation.totalTurns - source.rotation.quarter_turns_clockwise + 4) % 4 }
+
+    private func rotatedBox(_ box: [Double]) -> CGRect {
+        let x = box[0], y = box[1], w = box[2], h = box[3]
+        switch boxTurns {
+        case 1: return CGRect(x: 1 - y - h, y: x, width: h, height: w)
+        case 2: return CGRect(x: 1 - x - w, y: 1 - y - h, width: w, height: h)
+        case 3: return CGRect(x: y, y: 1 - x - w, width: h, height: w)
+        default: return CGRect(x: x, y: y, width: w, height: h)
+        }
+    }
+
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
             HStack {
@@ -320,14 +420,15 @@ struct PhotoCard: View {
                 if boxes && thumbnail != nil {
                     GeometryReader { geometry in
                         ForEach(Array(scale.regions.enumerated()),id:\.offset) { _,region in
+                            let box = rotatedBox(region.box)
                             Rectangle().stroke(regionColor(region.id),lineWidth:2)
-                                .frame(width:geometry.size.width*region.box[2],height:geometry.size.height*region.box[3])
-                                .position(x:geometry.size.width*(region.box[0]+region.box[2]/2),y:geometry.size.height*(region.box[1]+region.box[3]/2))
+                                .frame(width: geometry.size.width * box.width, height: geometry.size.height * box.height)
+                                .position(x: geometry.size.width * box.midX, y: geometry.size.height * box.midY)
                         }
                     }.clipped()
                 }
             }
-                .aspectRatio(thumbnail.map { CGFloat($0.width) / CGFloat($0.height) } ?? scale.aspect, contentMode: .fit)
+                .aspectRatio(thumbnail.map { CGFloat($0.width) / CGFloat($0.height) } ?? (boxTurns % 2 == 0 ? scale.aspect : 1 / scale.aspect), contentMode: .fit)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel(source.input.url.lastPathComponent)
             VStack(alignment:.leading,spacing:7) {
@@ -340,10 +441,23 @@ struct PhotoCard: View {
                 } else { Text("Focus review: No").font(.caption).foregroundStyle(.secondary) }
                 if let role = photo.relativeFocus { Text("Relative focus: \(role)").font(.caption) }
                 ForEach(photo.topPickReasons + photo.reasons + photo.compositionAdvisories,id:\.self) { Text($0).font(.caption) }
-                if source.rotation.quarter_turns_clockwise != 0 {
-                    Label("Rotated \(90*source.rotation.quarter_turns_clockwise)° clockwise",systemImage:"rotate.right").font(.caption)
+                if rotation.pendingTurns != 0 {
+                    let degrees = [0, 90, 180, 90][rotation.pendingTurns]
+                    let direction = rotation.pendingTurns == 3 ? "left" : "right"
+                    Label(rotation.pendingTurns == 2 ? "Rotated 180° · Unsaved" : "Rotated \(degrees)° \(direction) · Unsaved",
+                          systemImage: "rotate.left").font(.caption)
+                } else if rotationSaved {
+                    Label("Rotation saved", systemImage: "checkmark.circle").font(.caption)
                 }
                 Spacer(minLength: 0)
+                HStack {
+                    Button("Rotate Left", systemImage: "rotate.left", action: rotateLeft)
+                        .disabled(!canRotate)
+                    Button("Save Rotation", systemImage: "square.and.arrow.down", action: saveRotation)
+                        .disabled(!canSaveRotation)
+                        .help(fromPhotos ? "Save the displayed rotation to Photos" : "Save the displayed rotation to this file")
+                }
+                .font(.caption)
                 HStack {
                     Button("Zoom…", systemImage: "magnifyingglass", action: openZoom)
                     if !fromPhotos {
@@ -353,7 +467,7 @@ struct PhotoCard: View {
                     Spacer()
                     Button("Delete…", systemImage: "trash", action: requestDelete)
                         .disabled(!canDelete)
-                        .help(fromPhotos && !ReviewRemoval.photosDeletionEnabled
+                        .help(fromPhotos && !ReviewRemoval.photosLibraryAccessEnabled
                               ? "Photos deletion requires a build with Photos read/write access."
                               : "Remove this photo")
                 }
@@ -363,9 +477,12 @@ struct PhotoCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(.background).clipShape(RoundedRectangle(cornerRadius:12))
             .overlay(RoundedRectangle(cornerRadius:12).stroke(Color(nsColor:.separatorColor)))
-            .task(id:source.sha256+source.input.id) {
+            .task(id: "\(previewSource.input.url)|\(previewSource.sha256)|\(rotation.pendingTurns)") {
+                thumbnail = nil
+                unavailable = false
                 do {
-                    let image = try await Thumbnails.shared.image(url:source.input.url,turns:source.rotation.quarter_turns_clockwise,checksum:source.sha256)
+                    let image = try await Thumbnails.shared.image(url: previewSource.input.url,
+                        turns: rotation.pendingTurns, checksum: previewSource.sha256)
                     try Task.checkCancellation(); thumbnail = image
                 } catch is CancellationError {} catch { unavailable = true }
             }
@@ -395,6 +512,7 @@ struct ReviewWindow: View {
 
     private struct ZoomSelection: Identifiable {
         let source: AnalyzedSource
+        let turns: Int
         var id: String { source.input.id }
     }
 
@@ -416,10 +534,15 @@ struct ReviewWindow: View {
                     ForEach(start..<min(start + columns, members.count), id: \.self) { offset in
                         let index = members[offset]
                         let source = result.sources[index]
+                        let rotation = model.rotation(for: source)
                         PhotoCard(source: source, photo: result.photos[index],
                             scale: NativeScale(result: result, index: index), boxes: boxes,
                             fromPhotos: model.isPhotosSelection, rank: offset + 1, setSize: members.count,
-                            openZoom: { zoomSelection = ZoomSelection(source: source) },
+                            rotation: rotation, rotationSaved: model.wasRotationSaved(source),
+                            rotateLeft: { model.rotateLeft(source) }, saveRotation: { model.saveRotation(source) },
+                            canRotate: !model.busy, canSaveRotation: model.canSaveRotation(source),
+                            openZoom: { zoomSelection = ZoomSelection(source: rotation.savedSource ?? source,
+                                                                       turns: rotation.pendingTurns) },
                             requestDelete: { deleteSelection = source }, canDelete: model.canDelete(source))
                             .id(source.input.id)
                     }
@@ -444,7 +567,7 @@ struct ReviewWindow: View {
                 .listStyle(.sidebar)
                 .frame(maxHeight: .infinity)
                 VStack(alignment:.leading,spacing:8) {
-                    Text(model.deleting ? "Removing photo…" : model.status).font(.caption).foregroundStyle(.secondary)
+                    Text(model.savingRotation ? "Saving rotation…" : model.deleting ? "Removing photo…" : model.status).font(.caption).foregroundStyle(.secondary)
                     if let result = model.result {
                         ForEach(["Top Pick","Review","Possible Cull"],id:\.self) { tier in
                             HStack { Circle().fill(tierColor(tier)).frame(width:7,height:7)
@@ -534,7 +657,6 @@ struct ReviewWindow: View {
             ToolbarItemGroup {
                 Button("Choose Files…",systemImage:"plus",action:model.chooseFiles).disabled(model.busy)
                 photosPicker
-                Toggle("Auto-rotate",isOn:$model.autoRotate).disabled(model.busy).help("Apply conservative upright face and body evidence")
                 Button("Scan Again",systemImage:"sparkle.magnifyingglass",action:model.analyze).disabled(model.inputs.isEmpty || model.busy)
             }
         }
@@ -543,7 +665,7 @@ struct ReviewWindow: View {
             model.loadPhotos(selection)
             photosSelection = []
         }
-        .sheet(item: $zoomSelection) { PhotoZoom(source: $0.source) }
+        .sheet(item: $zoomSelection) { PhotoZoom(source: $0.source, turns: $0.turns) }
         .onChange(of: model.running) {
             if model.running { showsProcessingTime = false }
         }

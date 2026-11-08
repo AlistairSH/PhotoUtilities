@@ -20,9 +20,9 @@ enum HelpTopic: CaseIterable {
             [
                 "Use **Choose Files…** for images on disk or **Choose from Photos…** for your Photos library. Select up to 500 JPEG, HEIC, HEIF, PNG, or single-image TIFF files. Scanning starts when you confirm the selection.",
                 "Framewise analyzes photos on your Mac. If Photos needs to download a selected image from iCloud, loading may take longer. The picker supplies an image version for Framewise to analyze and preview.",
-                "Set **Auto-rotate** before choosing photos to turn sideways or upside-down images for analysis and preview when the app finds strong evidence of the correct orientation. Your source files are preserved.",
+                "Framewise automatically turns sideways or upside-down images for analysis and preview when it finds strong evidence of the correct orientation.",
                 "The progress bar tracks the current step. During **Compare photo pairs**, it counts comparisons between pairs of photos. After a scan, click **Processing time** in the sidebar for a breakdown of the analysis.",
-                "Click **Stop Scan** to cancel loading or analysis. An operation already in progress may take a moment to stop. Use **Scan Again** to rerun the retained selection, including after changing Auto-rotate, or choose a new batch."
+                "Click **Stop Scan** to cancel loading or analysis. An operation already in progress may take a moment to stop. Use **Scan Again** to rerun the retained selection or choose a new batch. Scanning again clears unsaved rotations."
             ]
         case .grouping:
             [
@@ -43,12 +43,13 @@ enum HelpTopic: CaseIterable {
                 "**Possible Missed Focus** flags areas worth inspecting and is separate from the tier. **Relative focus** compares sharpness with a directly matched photo when the subjects are comparable.",
                 "Turn on **Subject boxes** to see detected areas. Red marks faces, green people, orange animals, purple objects, and cyan attention areas.",
                 "Click **Zoom…** for a full-resolution preview. Use **Fit**, **100%**, **200%**, or **400%**, and scroll to inspect details. Click **Done** or press Escape to return to the review.",
+                "Click **Rotate Left** to turn a card and its zoom preview by 90°. The card marks an unsaved rotation. Click **Save Rotation** to apply it to the selected file or Photos asset. Files use a lossless orientation update when available. Photos keeps the original so you can revert the edit in Photos.",
                 "For photos chosen from disk, click **Show in Finder** to reveal the original file."
             ]
         case .delete:
             [
                 "Click **Delete…** on a photo card and confirm. A file on disk goes to the Mac Trash. To restore it, open Trash in Finder and choose **Put Back**.",
-                ReviewRemoval.photosDeletionEnabled
+                ReviewRemoval.photosLibraryAccessEnabled
                     ? "When you delete a photo from your Photos library, Framewise moves it to **Recently Deleted** in Photos. macOS may ask for Photos access. To restore the photo, open **Recently Deleted** in Photos and choose **Recover**."
                     : "To delete a photo from your Photos library, use the Photos app. You can restore it from **Recently Deleted** in Photos.",
                 "After deletion, use **Scan Again** to recalculate suggestions for the remaining photos. To review a recovered photo, select it again from Finder or Photos."

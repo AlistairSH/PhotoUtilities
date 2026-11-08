@@ -30,7 +30,7 @@ final class PickedPhotoFile: Transferable, Sendable {
         try PickedPhotoFile(copying: received.file)
     }
 
-    init(copying source: URL) throws {
+    init(copying source: URL, preferredName: String? = nil) throws {
         try Task.checkCancellation()
         guard let image = CGImageSourceCreateWithURL(source as CFURL, nil),
               CGImageSourceGetCount(image) == 1,
@@ -42,8 +42,9 @@ final class PickedPhotoFile: Transferable, Sendable {
 
         let manager = FileManager.default
         let directory = Self.stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let name = extensions.contains(source.pathExtension.lowercased())
-            ? source.lastPathComponent : source.deletingPathExtension().lastPathComponent + "." + fileExtension
+        let nameURL = preferredName.map { URL(fileURLWithPath: $0) } ?? source
+        let name = extensions.contains(nameURL.pathExtension.lowercased())
+            ? nameURL.lastPathComponent : nameURL.deletingPathExtension().lastPathComponent + "." + fileExtension
         let url = directory.appendingPathComponent(name)
         try manager.createDirectory(at: directory, withIntermediateDirectories: true,
                                     attributes: [.posixPermissions: 0o700])

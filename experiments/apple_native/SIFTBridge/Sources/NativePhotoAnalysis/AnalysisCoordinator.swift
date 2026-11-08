@@ -8,7 +8,12 @@ public struct AnalysisInput: Sendable, Codable {
     /// Source identity is independent of its location; a future Photos adapter can supply an asset ID.
     public let id: String
     public let url: URL
-    public init(id: String, url: URL) { self.id = id; self.url = url }
+    public let keepsEmbeddedOrientation: Bool?
+    public init(id: String, url: URL, keepsEmbeddedOrientation: Bool? = nil) {
+        self.id = id
+        self.url = url
+        self.keepsEmbeddedOrientation = keepsEmbeddedOrientation
+    }
 }
 public struct AnalysisProgress: Sendable {
     public enum Stage: String, Sendable { case validating, analyzing, matching, ranking, verifying, complete }
@@ -22,6 +27,12 @@ public struct AnalyzedSource: Sendable, Codable {
     public let sha256: String
     public let rotation: RotationEvidence
     public let siftKeypoints: Int
+
+    public func replacingFile(at url: URL, withBytesAt stagedURL: URL) throws -> AnalyzedSource {
+        let digest = try AnalysisCoordinator.digest(stagedURL, checkpoint: { try Task.checkCancellation() })
+        return AnalyzedSource(input: AnalysisInput(id: input.id, url: url, keepsEmbeddedOrientation: true),
+                              sha256: digest, rotation: rotation, siftKeypoints: siftKeypoints)
+    }
 
     public func matchesFile() throws -> Bool {
         try AnalysisCoordinator.digest(input.url, checkpoint: { try Task.checkCancellation() }) == sha256
@@ -119,7 +130,7 @@ public actor AnalysisCoordinator {
         for (i,input) in inputs.enumerated() {
             try check()
             try autoreleasepool {
-                let evidence = try LivePhotoAnalysis.analyze(url:input.url,autoRotate:autoRotate,checkpoint:check) { rgba,w,h in
+                let evidence = try LivePhotoAnalysis.analyze(url:input.url,autoRotate:autoRotate && input.keepsEmbeddedOrientation != true,checkpoint:check) { rgba,w,h in
                     features.append(try SIFTFeatures(rgba:rgba,width:w,height:h))
                 }
                 sources.append(AnalyzedSource(input:input,sha256:hashes[i],rotation:evidence.rotation,siftKeypoints:features.last!.keypointCount))
