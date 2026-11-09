@@ -12,7 +12,12 @@ Vision and SIFT evidence, measure focus, group related shots, and rank the revie
 It supports disk files and Photos picker selections, automatic start and
 cancellation, processing times, subject boxes, full-resolution zoom, and searchable
 in-app Help. Confirmed deletion moves files to Trash and, with the Photos entitlement
-and permission, moves Photos library items to Recently Deleted.
+and permission, moves Photos library items to Recently Deleted. Review cards and zoom previews
+share a manual Favorite control. JPEG, PNG, single-image TIFF and PSD use an embedded
+keyword when a lossless update can be verified. HEIC/HEIF, RAW and unsafe layouts
+use the current review only. Photos assets use the library’s native Favorite flag.
+**Save to Photos** copies a selected disk original into the library using add-only
+PhotoKit access, including RAW files that Photos accepts.
 
 Reviews live in memory for the session. Saved reviews and device validation remain
 open. See [the app guide](experiments/apple_native/UI.md) and
@@ -208,6 +213,6 @@ versioned runners accept explicit workspace/data paths; they are not photo-utils
 commands, menu items, pipeline stages or installation dependencies. Preserve the
 standalone restoration manifests rather than adding them to main CLI SQLite.
 No photographs, model weights or runtime environments are committed. Digital
-archival ingestion/RAW support, generic edits, Photos import/export and library
+archival ingestion/RAW support, generic edits, Photos export and broader library
 interoperability, Photomator automation, capture-date overrides, mixed/overlapping
 sheet layouts, manual geometry correction, Shortcuts and watchers remain deferred.

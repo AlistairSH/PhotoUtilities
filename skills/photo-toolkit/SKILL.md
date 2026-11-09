@@ -56,5 +56,10 @@ physical validation of the latest wrapper remains a separate check.
 Framewise is the native app for reviewing files or selections from the system
 Photos picker. See the repository's `README.md` for usage and builds. It supports
 manual deletion with confirmation to the Mac Trash or Photos Recently Deleted.
+**Save to Photos** copies the chosen disk original into the Photos library.
+Framewise embeds the Favorite keyword in verified JPEG, PNG, TIFF and PSD files.
+HEIC/HEIF, RAW and unsafe layouts keep Favorites in the current review. Legacy
+XMP companions may initialize a Favorite and are left untouched.
+
 Use the CLI routes above when the request calls for scanner workflows, batch
 reports, saved history, or ZIP archive/restore. RestorationLab is separate.

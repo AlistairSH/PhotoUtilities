@@ -24,7 +24,7 @@ enum ReviewRemoval {
     }
 
     static func authorizePhotosAccess() async throws {
-        guard photosLibraryAccessEnabled else { throw RemovalError.accessDenied }
+        guard photosLibraryAccessEnabled else { throw RemovalError.accessUnavailable }
         var access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if access == .notDetermined {
             access = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
@@ -42,11 +42,12 @@ enum ReviewRemoval {
     }
 
     enum RemovalError: LocalizedError {
-        case fileChanged, accessDenied, assetUnavailable
+        case fileChanged, accessUnavailable, accessDenied, assetUnavailable
 
         var errorDescription: String? {
             switch self {
             case .fileChanged: return "The file has changed since it was analyzed. Analyze it again before moving it to Trash."
+            case .accessUnavailable: return "This build of Framewise doesn’t have Photos library access."
             case .accessDenied: return "Allow Framewise access to Photos in System Settings under Privacy & Security."
             case .assetUnavailable: return "The selected photo is unavailable or Photos doesn’t allow it to be deleted."
             }

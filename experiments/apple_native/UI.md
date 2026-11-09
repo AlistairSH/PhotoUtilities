@@ -6,8 +6,9 @@ Framewise is the SwiftUI app built on NativePhotoAnalysis. See the
 ## Current experience
 
 Use **Choose Files…** or **Choose from Photos…** to select up to 500 JPEG,
-HEIC/HEIF, PNG or single-image TIFF images. Set **Auto-rotate** before choosing a
-batch. Scanning starts when you confirm the selection. **Stop Scan** cancels
+HEIC/HEIF, PNG or single-image TIFF images. The file picker also accepts PSD and
+RAW images that macOS can decode as a single image. Set **Auto-rotate** before
+choosing a batch. Scanning starts when you confirm the selection. **Stop Scan** cancels
 loading or analysis. Successful results
 show related sets and an ungrouped set in the sidebar, tier totals, ordered photo
 cards, focus notes, positive and advisory reasons, applied rotations and ranks
@@ -37,6 +38,44 @@ replacement selection or application exit. Results live in memory only.
 with Fit, 100%, 200% and 400% views. Scroll to inspect different parts of the
 image. The app decodes one full-resolution preview at a time.
 
+### Favorites
+
+Click the heart on a review card or in **Zoom…**. A filled heart means the image
+is a Favorite. Both views share the same state. Framewise reads existing Favorites
+when it opens a review; analysis never chooses Favorites. A failed save leaves the
+previous state intact and reports the error.
+
+| Source | Where the Favorite is kept |
+| --- | --- |
+| JPEG, PNG, single-image classic TIFF, PSD | Embedded `Framewise:Favorite` in XMP; existing IPTC keywords are recognized and the exact Favorite is also removed from IPTC when clearing it. |
+| HEIC/HEIF, RAW, or a layout that cannot be updated safely | In this review only, including **Scan Again**. A clock badge marks the heart. |
+| Apple Photos library | Native Photos Favorite via PhotoKit, with the Photos-enabled build and library access. |
+
+For disk files, Framewise uses Image I/O to read and verify metadata. It edits
+only the container records for XMP and legacy IPTC, leaving encoded image data,
+profiles, EXIF and other records in place. In TIFF, a growing packet can be appended
+and the active directory entry updated without relocating image data. Unsupported
+layouts, such as JPEG with extended XMP, fall back to the review. JPEGs with
+an MPF index can use an existing writable XMP packet if the edit fits in its
+reserved space. This keeps the HDR gain map and other indexed images in place.
+A supported file must be writable, and macOS must allow staging and replacing it
+on the same volume. A failed write leaves the original intact.
+
+On opening a review, Framewise can import a legacy Favorite (or the old explicit
+Framewise removal marker) from a full-filename or unambiguous stem-only XMP
+companion. Framewise never creates, changes or deletes a sidecar. The tooltip
+reports a retained or ignored companion. Only the Favorite state is imported;
+an embedded migration marker prevents the retained companion from overriding a
+subsequent heart change, even if another app updates unrelated companion fields. A disk keyword does not set the native Photos Favorite
+when the file is imported into the Photos library.
+
+**Save to Photos** copies the original file on a disk review card to the Photos
+library after macOS grants permission to add photos. Each click imports one
+file, so an ORF can be added by itself even when a matching JPEG is on disk.
+Photos receives the file as it exists on disk, including any saved rotation.
+The card shows **Saved to Photos** after a successful import and keeps that
+status through **Scan Again** in the same review.
+
 **Delete…** asks for confirmation. A file selection goes to the Mac Trash
 after the app checks that its contents still match the analyzed file.
 The remaining cards keep their analysis and update their displayed counts and
@@ -55,7 +94,8 @@ Follow the [project build instructions](../../README.md#build-and-run).
 `build_app.sh` packages the SwiftPM `Framewise` executable and generates
 `AppIcon.icns` from the approved `Resources/AppIcon.png`. The bundle identifier
 is `local.photoutilities.review`. The `--enable-photos-delete` option adds the
-Photos usage description and Photos-library entitlement when signing.
+Photos usage descriptions and Photos-library entitlement when signing. It enables
+adding disk originals, native Photos Favorites, rotation saves, and confirmed deletion.
 
 The script requires a new absolute `.app` path and refuses occupied paths.
 Use a destination outside Git and iCloud. The script removes inherited metadata
@@ -67,6 +107,23 @@ State property wrapper but lacks the SwiftUIMacros compiler plugin. The app's
 `ViewState` type alias explicitly selects the standard property wrapper.
 
 ## Validation
+
+Run `SIFTBridge/check_favorites.sh` to check disk Favorites on disposable
+JPEG, TIFF, PNG and PSD files. Pass sample paths as optional arguments to verify
+on copies. The checks compare encoded image data before and after, verify
+unrelated metadata and permissions, and exercise repeated writes, reopening,
+migration and rollback. On macOS 27.0.1, the Image I/O copy API also reported
+success on sample HEICs, but changed their container brands and did not
+establish preservation of auxiliary items. HEIC/HEIF writes are disabled.
+
+For a live PhotoKit check in a disposable test library, mark one fixture as a
+Favorite in Photos and leave a second fixture unmarked. Review both in the
+Photos-enabled build and verify the initial hearts, then toggle each from the
+card or **Zoom…**. Check that both views and Photos agree, and reselect the
+fixtures to verify persistence. Run **Scan Again** and confirm the flags stay
+unchanged. With Photos access denied, review a picker selection and verify that
+the heart explains why the flag is unavailable.
+
 
 The macOS app compiles and its ad-hoc signature verifies. Native UI inspection
 covers the empty screen, file selection, live progress, cancellation returning to

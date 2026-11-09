@@ -10,6 +10,11 @@ import NativePhotoAnalysis
 // Explicit wrapper alias also builds with CLT SDKs lacking the new State macro plugin.
 typealias ViewState<Value> = SwiftUI.State<Value>
 
+@MainActor final class PhotosSaveState: ObservableObject {
+    @Published var activeURL: URL?
+    @Published var savedURLs: Set<URL> = []
+}
+
 @MainActor final class ReviewModel: ObservableObject {
     @Published var inputs: [URL] = []
     @Published var result: AnalysisResult?
@@ -21,9 +26,13 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     @Published var phaseTitle = "Step 1 of 5 · Check selected photos"
     @Published var startedAt: Date?
     @Published var error: String?
+    @Published private(set) var savingFavorite = false
+    @Published private var favorites: [FavoriteIdentity: FavoriteState] = [:]
     @Published private(set) var savingRotation = false
     @Published private var rotations: [String: ReviewRotation] = [:]
     @Published private var savedInputURLs: Set<URL> = []
+    let photosSaveState = PhotosSaveState()
+    var savingToPhotos: Bool { photosSaveState.activeURL != nil }
     @Published private(set) var deleting = false
     @Published private(set) var removedURLs: Set<URL> = []
     private let coordinator = AnalysisCoordinator()
@@ -37,7 +46,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     private var photosSavedAt: [String: Date] = [:]
 
     var isPhotosSelection: Bool { !pickedFiles.isEmpty }
-    var busy: Bool { running || deleting || savingRotation }
+    var busy: Bool { running || deleting || savingRotation || savingFavorite || savingToPhotos }
 
     var sets: [[Int]] {
         guard let result else { return [] }
@@ -50,7 +59,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
         panel.title = "Choose photos to review"
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.jpeg, .png, .tiff, .heic, .heif]
+        panel.allowedContentTypes = [.jpeg, .png, .tiff, .heic, .heif, .rawImage,
+            UTType(importedAs: FavoriteContainer.Format.psd.rawValue, conformingTo: .image)]
+            + [UTType(filenameExtension: "psd")].compactMap { $0 }
         guard panel.runModal() == .OK else { return }
         guard panel.urls.count <= 500 else { error = "Choose up to 500 photos at a time."; return }
         scoped.forEach { $0.stopAccessingSecurityScopedResource() }
@@ -119,9 +130,11 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 
     private func setInputs(_ urls: [URL]) {
         inputs = urls
+        favorites = [:]
         rotations = [:]
         photosSavedAt = [:]
         savedInputURLs = []
+        photosSaveState.savedURLs = []
         removedURLs = []
         result = nil; selectedSet = 0; error = nil
         status = "\(inputs.count) photos ready"
@@ -191,9 +204,19 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 }
             }
             try Task.checkCancellation()
+            let loadedFavorites = try await loadFavorites(value.sources)
+            try Task.checkCancellation()
+            favorites = loadedFavorites
             rotations = [:]
+            for source in value.sources {
+                if let checksum = loadedFavorites[.file(source.input.url)]?.fileSnapshot?.updatedDigest {
+                    var draft = ReviewRotation(source: source)
+                    draft.savedSource = source.withMetadataChecksum(checksum)
+                    rotations[source.input.id] = draft
+                }
+            }
             result = value; selectedSet = 0
-            status = "\(value.photos.count) photos reviewed in \(duration(value.timings?["total"] ?? 0))"
+            status = "\(value.photos.count) \(value.photos.count == 1 ? "photo" : "photos") reviewed in \(duration(value.timings?["total"] ?? 0))"
         } catch is CancellationError {
             status = "Scan stopped"
         } catch {
@@ -206,6 +229,89 @@ typealias ViewState<Value> = SwiftUI.State<Value>
         cancelling = true; status = "Stopping scan…"
         task?.cancel()
         photosTransfer?.cancel()
+    }
+
+    private func favoriteIdentity(for url: URL) -> FavoriteIdentity? {
+        if isPhotosSelection { return assetIdentifiers[url].map(FavoriteIdentity.photos) }
+        return .file(url)
+    }
+
+    private func loadFavorites(_ sources: [AnalyzedSource]) async throws -> [FavoriteIdentity: FavoriteState] {
+        if isPhotosSelection {
+            let identifiers = Set(sources.compactMap { assetIdentifiers[$0.input.url] })
+            do {
+                let states = try await PhotosFavorite.read(Array(identifiers))
+                return Dictionary(uniqueKeysWithValues: identifiers.map { id in
+                    (.photos(id), states[id] ?? .unavailable(FavoriteError.photosUnavailable.localizedDescription))
+                })
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                return Dictionary(uniqueKeysWithValues: identifiers.map { (.photos($0), .unavailable(error.localizedDescription)) })
+            }
+        }
+        let previous = favorites
+        let worker = Task.detached(priority: .userInitiated) {
+            var states: [FavoriteIdentity: FavoriteState] = [:]
+            for source in sources {
+                try Task.checkCancellation()
+                let url = source.input.url
+                if let state = previous[.file(url)], state.fileSnapshot?.sessionOnly == true {
+                    states[.file(url)] = state
+                } else {
+                    states[.file(url)] = .file(FileFavorite.load(url, expectedDigest: source.sha256))
+                }
+            }
+            return states
+        }
+        return try await withTaskCancellationHandler(operation: { try await worker.value },
+                                                     onCancel: { worker.cancel() })
+    }
+
+    func favorite(for source: AnalyzedSource) -> FavoriteState {
+        let url = (rotation(for: source).savedSource ?? source).input.url
+        return favoriteIdentity(for: url).flatMap { favorites[$0] }
+            ?? .unavailable(FavoriteError.photosUnavailable.localizedDescription)
+    }
+
+    func toggleFavorite(_ source: AnalyzedSource) {
+        var draft = rotation(for: source)
+        let current = draft.savedSource ?? source
+        let url = current.input.url
+        guard !busy, inputs.contains(url), let identity = favoriteIdentity(for: url),
+              let state = favorites[identity], state.unavailableReason == nil else { return }
+        let favorite = !state.isFavorite
+        if let file = state.fileSnapshot, file.sessionOnly {
+            favorites[identity] = .file(.init(isFavorite: favorite, sessionOnly: true, note: file.note))
+            return
+        }
+        savingFavorite = true
+        Task {
+            defer { savingFavorite = false }
+            do {
+                switch identity {
+                case .file:
+                    let digest = try await Task.detached(priority: .userInitiated) {
+                        try FileFavorite.write(favorite, to: url, expectedDigest: current.sha256)
+                    }.value
+                    draft.savedSource = current.withMetadataChecksum(digest)
+                    rotations[source.input.id] = draft
+                    favorites[identity] = .file(.init(isFavorite: favorite, sessionOnly: false,
+                                                      note: state.fileSnapshot?.note))
+                case let .photos(identifier):
+                    if let editedAt = try await PhotosFavorite.write(favorite, identifier: identifier,
+                        loadedAt: photosSavedAt[identifier] ?? photosLoadedAt) {
+                        photosSavedAt[identifier] = editedAt
+                    }
+                    favorites[identity] = .known(favorite)
+                }
+            } catch FileFavorite.StorageError.unsafe {
+                favorites[identity] = .file(.init(isFavorite: favorite, sessionOnly: true,
+                                                  note: FileFavorite.StorageError.unsafe.localizedDescription))
+            } catch {
+                self.error = "Couldn’t change Favorite for “\(url.lastPathComponent)”. \(error.localizedDescription)"
+            }
+        }
     }
 
     func rotation(for source: AnalyzedSource) -> ReviewRotation {
@@ -264,6 +370,30 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 status = "Saved rotation to \(identifier == nil ? "file" : "Photos")"
             } catch {
                 self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private func canSaveToPhotos(_ source: AnalyzedSource) -> Bool {
+        let url = source.input.url
+        return !busy && !isPhotosSelection && ReviewImport.photosAddAccessEnabled
+            && inputs.contains(url) && !photosSaveState.savedURLs.contains(url)
+    }
+
+    func saveToPhotos(_ source: AnalyzedSource) {
+        guard canSaveToPhotos(source) else { return }
+        let current = rotation(for: source).savedSource ?? source
+        let name = current.input.url.lastPathComponent
+        photosSaveState.activeURL = source.input.url
+        Task {
+            defer { photosSaveState.activeURL = nil }
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try await ReviewImport.saveToPhotos(current)
+                }.value
+                photosSaveState.savedURLs.insert(source.input.url)
+            } catch {
+                self.error = "Couldn’t save “\(name)” to Photos. \(error.localizedDescription)"
             }
         }
     }
@@ -383,9 +513,12 @@ struct PhotoCard: View {
     let saveRotation: () -> Void
     let canRotate: Bool
     let canSaveRotation: Bool
+    let favorite: FavoriteOverlay
     let openZoom: () -> Void
     let requestDelete: () -> Void
     let canDelete: Bool
+    let saveToPhotos: () -> Void
+    let photosSaveState: PhotosSaveState
     @ViewState private var thumbnail: CGImage?
     @ViewState private var unavailable = false
 
@@ -431,6 +564,7 @@ struct PhotoCard: View {
                 .aspectRatio(thumbnail.map { CGFloat($0.width) / CGFloat($0.height) } ?? (boxTurns % 2 == 0 ? scale.aspect : 1 / scale.aspect), contentMode: .fit)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel(source.input.url.lastPathComponent)
+                .overlay(alignment: .bottomLeading) { favorite }
             VStack(alignment:.leading,spacing:7) {
                 Text(source.input.url.lastPathComponent).font(.headline).lineLimit(1)
                     .help(fromPhotos ? "Selected from Photos" : source.input.url.path)
@@ -450,6 +584,10 @@ struct PhotoCard: View {
                     Label("Rotation saved", systemImage: "checkmark.circle").font(.caption)
                 }
                 Spacer(minLength: 0)
+                if !fromPhotos {
+                    SaveToPhotosButton(state: photosSaveState, url: source.input.url,
+                                       enabled: canRotate, save: saveToPhotos)
+                }
                 HStack {
                     Button("Rotate Left", systemImage: "rotate.left", action: rotateLeft)
                         .disabled(!canRotate)
@@ -489,6 +627,31 @@ struct PhotoCard: View {
     }
 }
 
+private struct SaveToPhotosButton: View {
+    @ObservedObject var state: PhotosSaveState
+    let url: URL
+    let enabled: Bool
+    let save: () -> Void
+
+    var body: some View {
+        let saved = state.savedURLs.contains(url)
+        let saving = state.activeURL == url
+        Button(action: save) {
+            ZStack(alignment: .leading) {
+                // Reserve the same space for each state so saving doesn't
+                // invalidate the review's scroll and window layout.
+                Label("Saving to Photos…", systemImage: "photo.badge.plus").hidden()
+                Label(saved ? "Saved to Photos" : saving ? "Saving to Photos…" : "Save to Photos",
+                      systemImage: saved ? "checkmark.circle" : "photo.badge.plus")
+                    .lineLimit(1)
+            }
+        }
+        .disabled(!enabled || saved || state.activeURL != nil || !ReviewImport.photosAddAccessEnabled)
+        .help(ReviewImport.photosAddAccessEnabled ? "Copy this original file to Photos" : "Requires a build with Photos access")
+        .font(.caption)
+    }
+}
+
 // Lightweight presentation data avoids exposing image buffers to the UI model.
 struct NativeScale {
     let aspect: CGFloat
@@ -512,16 +675,27 @@ struct ReviewWindow: View {
 
     private struct ZoomSelection: Identifiable {
         let source: AnalyzedSource
+        let preview: AnalyzedSource
         let turns: Int
         var id: String { source.input.id }
     }
 
-    private var photosPicker: some View {
+    private func favoriteOverlay(for source: AnalyzedSource) -> FavoriteOverlay {
+        FavoriteOverlay(state: model.favorite(for: source), enabled: !model.busy) { model.toggleFavorite(source) }
+    }
+
+    private var reviewError: Binding<Bool> {
+        Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })
+    }
+
+    private var toolbarBusy: Bool { model.busy && !model.savingToPhotos }
+
+    private func photosPicker(disabled: Bool) -> some View {
         PhotosPicker(selection: $photosSelection, maxSelectionCount: 500, selectionBehavior: .ordered,
                      matching: .images, preferredItemEncoding: .current, photoLibrary: .shared()) {
             Label("Choose from Photos…", systemImage: "photo.on.rectangle")
         }
-        .disabled(model.busy)
+        .disabled(disabled)
     }
 
     private func photoGrid(result: AnalysisResult, members: [Int], width: CGFloat) -> some View {
@@ -541,9 +715,11 @@ struct ReviewWindow: View {
                             rotation: rotation, rotationSaved: model.wasRotationSaved(source),
                             rotateLeft: { model.rotateLeft(source) }, saveRotation: { model.saveRotation(source) },
                             canRotate: !model.busy, canSaveRotation: model.canSaveRotation(source),
-                            openZoom: { zoomSelection = ZoomSelection(source: rotation.savedSource ?? source,
+                            favorite: favoriteOverlay(for: source),
+                            openZoom: { zoomSelection = ZoomSelection(source: source, preview: rotation.savedSource ?? source,
                                                                        turns: rotation.pendingTurns) },
-                            requestDelete: { deleteSelection = source }, canDelete: model.canDelete(source))
+                            requestDelete: { deleteSelection = source }, canDelete: model.canDelete(source),
+                            saveToPhotos: { model.saveToPhotos(source) }, photosSaveState: model.photosSaveState)
                             .id(source.input.id)
                     }
                 }
@@ -555,6 +731,9 @@ struct ReviewWindow: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             VStack(spacing: 0) {
+                // Keep the scrolling list inside the content area when macOS
+                // extends the sidebar material behind the window controls.
+                Color.clear.frame(height: 1).accessibilityHidden(true)
                 List(selection:Binding<Int?>(get:{model.selectedSet},set:{if let value = $0 { model.selectedSet = value }})) {
                     Section("Review") {
                         ForEach(Array(model.sets.enumerated().filter { !$0.element.isEmpty }),id:\.offset) { index,members in
@@ -566,8 +745,9 @@ struct ReviewWindow: View {
                 }
                 .listStyle(.sidebar)
                 .frame(maxHeight: .infinity)
+                .clipped()
                 VStack(alignment:.leading,spacing:8) {
-                    Text(model.savingRotation ? "Saving rotation…" : model.deleting ? "Removing photo…" : model.status).font(.caption).foregroundStyle(.secondary)
+                    Text(model.savingFavorite ? "Saving Favorite…" : model.savingRotation ? "Saving rotation…" : model.deleting ? "Removing photo…" : model.status).font(.caption).foregroundStyle(.secondary)
                     if let result = model.result {
                         ForEach(["Top Pick","Review","Possible Cull"],id:\.self) { tier in
                             HStack { Circle().fill(tierColor(tier)).frame(width:7,height:7)
@@ -601,7 +781,6 @@ struct ReviewWindow: View {
                 .padding()
                 .fixedSize(horizontal: false, vertical: true)
             }
-            .background(SidebarTitlebarRules(sidebarVisible: columnVisibility != .detailOnly).allowsHitTesting(false))
             .navigationTitle("Framewise")
             .navigationSplitViewColumnWidth(min:180,ideal:220)
         } detail: {
@@ -621,13 +800,14 @@ struct ReviewWindow: View {
                 }
                 if let result = model.result, model.sets.indices.contains(model.selectedSet) {
                     let members = model.sets[model.selectedSet]
+                    Color.clear.frame(height: 1).accessibilityHidden(true)
                     GeometryReader { viewport in
                         ScrollView {
                             VStack(alignment:.leading,spacing:18) {
                                 HStack {
                                     VStack(alignment:.leading,spacing:5) {
                                         Text(model.selectedSet < result.orderedGroups.count ? "Related set \(model.selectedSet+1)" : "Ungrouped photos").font(.largeTitle.bold())
-                                        Text("\(members.count) photos · Ranked for your review").foregroundStyle(.secondary)
+                                        Text("\(members.count) \(members.count == 1 ? "photo" : "photos") · Ranked for your review").foregroundStyle(.secondary)
                                     }
                                     Spacer(); Toggle("Subject boxes",isOn:$boxes).toggleStyle(.switch).fixedSize()
                                 }
@@ -635,7 +815,9 @@ struct ReviewWindow: View {
                                 photoGrid(result: result, members: members, width: max(0, viewport.size.width - 48))
                             }.padding(24)
                         }
-                    }.background(Color(nsColor:.windowBackgroundColor))
+                    }
+                    .clipped()
+                    .background(Color(nsColor:.windowBackgroundColor))
                 } else {
                     ContentUnavailableView {
                         Label(model.running ? "Reviewing your photos" : "A clearer view of your photos",systemImage:"photo.stack")
@@ -645,7 +827,7 @@ struct ReviewWindow: View {
                         if !model.running {
                             if model.inputs.isEmpty {
                                 Button("Choose Files…",action:model.chooseFiles).buttonStyle(.borderedProminent)
-                                photosPicker
+                                photosPicker(disabled: model.busy)
                             }
                             else { Button("Scan Again",action:model.analyze).buttonStyle(.borderedProminent) }
                         }
@@ -655,9 +837,11 @@ struct ReviewWindow: View {
         }
         .toolbar {
             ToolbarItemGroup {
-                Button("Choose Files…",systemImage:"plus",action:model.chooseFiles).disabled(model.busy)
-                photosPicker
-                Button("Scan Again",systemImage:"sparkle.magnifyingglass",action:model.analyze).disabled(model.inputs.isEmpty || model.busy)
+                // Keep the window toolbar stable while PhotoKit saves. The
+                // model still guards file selection, Photos selection and rescans.
+                Button("Choose Files…",systemImage:"plus",action:model.chooseFiles).disabled(toolbarBusy)
+                photosPicker(disabled: toolbarBusy)
+                Button("Scan Again",systemImage:"sparkle.magnifyingglass",action:model.analyze).disabled(model.inputs.isEmpty || toolbarBusy)
             }
         }
         .onChange(of: photosSelection) { _, selection in
@@ -665,7 +849,9 @@ struct ReviewWindow: View {
             model.loadPhotos(selection)
             photosSelection = []
         }
-        .sheet(item: $zoomSelection) { PhotoZoom(source: $0.source, turns: $0.turns) }
+        .sheet(item: $zoomSelection) {
+            ReviewZoom(model: model, source: $0.source, preview: $0.preview, turns: $0.turns)
+        }
         .onChange(of: model.running) {
             if model.running { showsProcessingTime = false }
         }
@@ -681,7 +867,9 @@ struct ReviewWindow: View {
                  ? "“\(source.input.url.lastPathComponent)” will move to Recently Deleted in Photos."
                  : "“\(source.input.url.lastPathComponent)” will move to the Mac Trash.")
         }
-        .alert("Couldn’t finish review",isPresented:Binding(get:{model.error != nil},set:{if !$0 { model.error = nil }})) {
+        .alert("Couldn’t finish review", isPresented: Binding(
+            get: { zoomSelection == nil && reviewError.wrappedValue },
+            set: { if zoomSelection == nil { reviewError.wrappedValue = $0 } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
         .frame(minWidth:900,minHeight:600)

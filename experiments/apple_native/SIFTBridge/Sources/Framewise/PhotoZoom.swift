@@ -4,6 +4,7 @@ import NativePhotoAnalysis
 struct PhotoZoom: View {
     let source: AnalyzedSource
     let turns: Int
+    let favorite: FavoriteOverlay
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
     @ViewState private var image: CGImage?
@@ -41,6 +42,11 @@ struct PhotoZoom: View {
                             .accessibilityLabel(source.input.url.lastPathComponent)
                     }
                     .defaultScrollAnchor(.center)
+                    .overlay(alignment: .bottomLeading) {
+                        favorite
+                            .padding(.leading, max(0, (viewport.size.width - width * factor) / 2))
+                            .padding(.bottom, max(0, (viewport.size.height - height * factor) / 2))
+                    }
                 } else {
                     Group {
                         if failed {
@@ -66,5 +72,24 @@ struct PhotoZoom: View {
                 failed = true
             }
         }
+    }
+}
+
+/// Observe the same review state even while the zoom sheet is open.
+struct ReviewZoom: View {
+    @ObservedObject var model: ReviewModel
+    let source: AnalyzedSource
+    let preview: AnalyzedSource
+    let turns: Int
+
+    var body: some View {
+        PhotoZoom(source: preview, turns: turns,
+                  favorite: FavoriteOverlay(state: model.favorite(for: source), enabled: !model.busy) {
+                      model.toggleFavorite(source)
+                  })
+            .alert("Couldn’t change Favorite", isPresented: Binding(
+                get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+                Button("OK") { model.error = nil }
+            } message: { Text(model.error ?? "") }
     }
 }

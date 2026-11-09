@@ -13,15 +13,23 @@ selected images from iCloud if they aren’t stored on your Mac.
 ## Review photos
 
 1. Use **Choose Files…** or **Choose from Photos…** to select up to 500 JPEG,
-   HEIC/HEIF, PNG, or single-image TIFF images. Set **Auto-rotate** before
-   selecting if you want to change how Framewise orients its previews.
+   HEIC/HEIF, PNG, or single-image TIFF images. **Choose Files…** also accepts PSD
+   and RAW images that macOS can decode as a single image. Set **Auto-rotate**
+   before selecting if you want to change how Framewise orients its previews.
 2. Scanning starts automatically. **Stop Scan** cancels loading or analysis,
    and **Scan Again** reruns the selection. **Processing time** in the sidebar
    shows the duration of each analysis phase after a scan.
 3. Open a related set or **Ungrouped** in the sidebar. Use **Subject boxes**,
    focus notes, and **Zoom…** to inspect a photo at full resolution. **Show in
    Finder** reveals a selected file on disk.
-4. To remove a photo, click **Delete…** and confirm. Files go to the Mac Trash.
+4. Click the heart on a card or in **Zoom…** to add or remove a Favorite.
+   Framewise embeds Favorites in JPEG, PNG, TIFF and PSD when a lossless update
+   can be verified. For HEIC/HEIF, RAW and unsafe layouts, Favorites last for the
+   current review. Photos uses the native heart and requires the Photos-enabled build.
+5. Click **Save to Photos** on a file card to copy that original into Photos.
+   For a RAW+JPEG pair on disk, choose the RAW card to import the RAW by itself.
+   This requires the Photos-enabled build and permission to add photos.
+6. To remove a photo, click **Delete…** and confirm. Files go to the Mac Trash.
    In the Photos-enabled build below, library items go to **Recently Deleted**
    after macOS grants Photos access. Tier suggestions never remove photos.
 
@@ -46,6 +54,8 @@ open "/absolute/path/to/Framewise.app"
 Choose a new destination outside the repository. The script builds and
 ad-hoc signs a local development bundle. Omit `--enable-photos-delete` for a
 bundle that can review Photos selections and move files on disk to Trash.
+**Save to Photos** requires this flag and permission to add photos. Native
+Photos Favorites require read/write access.
 
 See the [Framewise app notes](experiments/apple_native/UI.md) for packaging and
 validation, the [native analysis guide](experiments/apple_native/README.md) for

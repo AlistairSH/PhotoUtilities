@@ -18,7 +18,7 @@ enum HelpTopic: CaseIterable {
         switch self {
         case .scan:
             [
-                "Use **Choose Files…** for images on disk or **Choose from Photos…** for your Photos library. Select up to 500 JPEG, HEIC, HEIF, PNG, or single-image TIFF files. Scanning starts when you confirm the selection.",
+                "Use **Choose Files…** for images on disk or **Choose from Photos…** for your Photos library. Select up to 500 JPEG, HEIC, HEIF, PNG, or single-image TIFF images. The file picker also accepts PSD and compatible RAW files. Scanning starts when you confirm the selection.",
                 "Framewise analyzes photos on your Mac. If Photos needs to download a selected image from iCloud, loading may take longer. The picker supplies an image version for Framewise to analyze and preview.",
                 "Framewise automatically turns sideways or upside-down images for analysis and preview when it finds strong evidence of the correct orientation.",
                 "The progress bar tracks the current step. During **Compare photo pairs**, it counts comparisons between pairs of photos. After a scan, click **Processing time** in the sidebar for a breakdown of the analysis.",
@@ -43,8 +43,10 @@ enum HelpTopic: CaseIterable {
                 "**Possible Missed Focus** flags areas worth inspecting and is separate from the tier. **Relative focus** compares sharpness with a directly matched photo when the subjects are comparable.",
                 "Turn on **Subject boxes** to see detected areas. Red marks faces, green people, orange animals, purple objects, and cyan attention areas.",
                 "Click **Zoom…** for a full-resolution preview. Use **Fit**, **100%**, **200%**, or **400%**, and scroll to inspect details. Click **Done** or press Escape to return to the review.",
+                "Click the heart on a photo card or zoom preview to add or remove a Favorite. A filled heart means the photo is a Favorite. Framewise keeps the previous state until the change is saved.",
+                "JPEG, PNG, TIFF and PSD Favorites are saved in the file when the edit can be made safely. HEIC, HEIF, RAW and other unsupported images keep Favorites for this review only. A clock badge on the heart marks a Favorite that lasts only for this review. Photos library Favorites use Photos’ own heart and require library access.",
                 "Click **Rotate Left** to turn a card and its zoom preview by 90°. The card marks an unsaved rotation. Click **Save Rotation** to apply it to the selected file or Photos asset. Files use a lossless orientation update when available. Photos keeps the original so you can revert the edit in Photos.",
-                "For photos chosen from disk, click **Show in Finder** to reveal the original file."
+                "For photos chosen from disk, click **Show in Finder** to reveal the original file. **Save to Photos** copies that file to your library after you grant permission to add photos. To import a RAW on its own, use **Save to Photos** on the RAW card."
             ]
         case .delete:
             [

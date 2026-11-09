@@ -45,8 +45,8 @@ cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Framewise</string>
 <key>CFBundleExecutable</key><string>Framewise</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.5.13</string>
-<key>CFBundleVersion</key><string>19</string>
+<key>CFBundleShortVersionString</key><string>0.5.17</string>
+<key>CFBundleVersion</key><string>23</string>
 <key>CFBundleIconFile</key><string>AppIcon.icns</string>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
@@ -56,7 +56,8 @@ PLIST
 # Generated bundles under synced Documents may inherit Finder/resource-fork attributes.
 /usr/bin/xattr -cr "$app_path"
 if [ "$photos_delete" -eq 1 ]; then
-    /usr/libexec/PlistBuddy -c 'Add :NSPhotoLibraryUsageDescription string Framewise uses Photos access to save rotations you choose and move photos you choose to delete to Recently Deleted.' "$app_path/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c 'Add :NSPhotoLibraryUsageDescription string Framewise uses Photos access to read and change Favorites, save rotations you choose, and move photos you choose to delete to Recently Deleted.' "$app_path/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c 'Add :NSPhotoLibraryAddUsageDescription string Framewise adds the original files you choose to save to Photos.' "$app_path/Contents/Info.plist"
     entitlements="$scratch/entitlements.plist"
     cat > "$entitlements" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

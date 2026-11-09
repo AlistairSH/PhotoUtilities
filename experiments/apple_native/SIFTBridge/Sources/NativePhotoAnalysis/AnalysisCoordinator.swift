@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import ImageIO
 import Vision
 import NativePhotoCore
 import NativeSIFT
@@ -32,6 +33,11 @@ public struct AnalyzedSource: Sendable, Codable {
         let digest = try AnalysisCoordinator.digest(stagedURL, checkpoint: { try Task.checkCancellation() })
         return AnalyzedSource(input: AnalysisInput(id: input.id, url: url, keepsEmbeddedOrientation: true),
                               sha256: digest, rotation: rotation, siftKeypoints: siftKeypoints)
+    }
+
+    /// A verified metadata edit changes the file hash without invalidating analysis.
+    public func withMetadataChecksum(_ checksum: String) -> AnalyzedSource {
+        AnalyzedSource(input: input, sha256: checksum, rotation: rotation, siftKeypoints: siftKeypoints)
     }
 
     public func matchesFile() throws -> Bool {
@@ -117,8 +123,11 @@ public actor AnalysisCoordinator {
         report(.validating,0,inputs.count)
         for input in inputs {
             try check()
-            guard ["jpg","jpeg","heic","heif","png","tif","tiff"].contains(input.url.pathExtension.lowercased()),
-                  try input.url.resourceValues(forKeys:[.isRegularFileKey]).isRegularFile == true else {
+            let ext = input.url.pathExtension.lowercased()
+            guard try input.url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true,
+                  ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff", "psd"].contains(ext)
+                    || CGImageSourceCreateWithURL(input.url as CFURL, nil)
+                        .flatMap(CGImageSourceGetType).map({ ($0 as String).hasSuffix("raw-image") }) == true else {
                 throw ReviewError.invalid("Unsupported image file: \(input.url.path)")
             }
             hashes.append(try Self.digest(input.url,checkpoint:check))
