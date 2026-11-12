@@ -1,21 +1,35 @@
-# PhotoUtilities — current project state
+# PhotoUtilities project status
 
-Updated October 18, 2026. [README.md](README.md) documents operation;
-[AGENTS.md](AGENTS.md) governs development. Dated decisions and earlier validation
-are preserved in [project history](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments/PROJECT_HISTORY_20261017.md).
+Updated November 8, 2026. [README.md](README.md) covers Framewise usage and builds.
+[CLI.md](CLI.md) covers scanner and batch workflows. [AGENTS.md](AGENTS.md) governs
+development. Earlier decisions are preserved in [project history](https://github.com/AlistairSH/PhotoUtilities/blob/8809e8118783bd1a15513edbd9f02f68adee305c/experiments/PROJECT_HISTORY_20261017.md).
 
-## Status and scope
+## Framewise for macOS
 
-PhotoUtilities is an offline Mac Python CLI for Canon LiDE 400 sheet acquisition,
-print separation/rectification, conservative visual quarter-turns, related-photo
-grouping, three-tier selection review, optional Polaroid TIFF editing and explicit
-reversible culling. SQLite records jobs, assets, recipes, checksums and lineage.
+Framewise is the primary macOS app. Its SwiftUI interface
+uses the NativePhotoAnalysis coordinator to decode and orient photos, gather Apple
+Vision and SIFT evidence, measure focus, group related shots, and rank the review.
+It supports disk files and Photos picker selections, automatic start and
+cancellation, processing times, subject boxes, full-resolution zoom, and searchable
+in-app Help. Confirmed deletion moves files to Trash and, with the Photos entitlement
+and permission, moves Photos library items to Recently Deleted. Review cards and zoom previews
+share a manual Favorite control. JPEG, PNG, single-image TIFF and PSD use an embedded
+keyword when a lossless update can be verified. HEIC/HEIF, RAW and unsafe layouts
+use the current review only. Photos assets use the library’s native Favorite flag.
+**Save to Photos** copies a selected disk original into the library using add-only
+PhotoKit access, including RAW files that Photos accepts.
 
-The user has reviewed and accepted the integrated workflow and report refinements.
-The accepted integration and standalone RestorationLab checkpoint are merged into
-`main` and published on GitHub. Research scripts and history are preserved on
-`experiment/ranking-culling` at `8809e81`; they are not required to run the CLI,
-RestorationLab, packaging or core tests and have been removed from `main`.
+Reviews live in memory for the session. Saved reviews and device validation remain
+open. See [the app guide](experiments/apple_native/UI.md) and
+[coordinator validation](experiments/apple_native/COORDINATOR.md).
+
+## PhotoUtilities scanner and batch CLI
+
+The separate offline CLI supports Canon LiDE 400 sheet acquisition, print
+separation and rectification, visual quarter-turns, related-photo grouping,
+three-tier HTML review, the fixed Polaroid TIFF recipe, and explicit reversible
+archiving. SQLite records jobs, assets, recipes, checksums and lineage. The
+following sections describe the CLI unless they name Framewise.
 
 ## Common workflows and menu
 
@@ -185,8 +199,9 @@ and disposable copies for editing/archive tests. Private photos, previews, repor
 DBs, binaries and model weights stay outside Git and off remote inference services.
 
 Historical focus, aesthetics, Foundation Models, metadata, face-capture and cascade
-experiments are preserved in the [experimental branch snapshot](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments);
-research artifacts are separate from CLI features. Only the selected native measurement/tier policy was
+experiments are preserved in the [research branch snapshot](https://github.com/AlistairSH/PhotoUtilities/tree/8809e8118783bd1a15513edbd9f02f68adee305c/experiments).
+The Swift packages under `experiments/apple_native` power Framewise and include
+the native validation tools. Only the selected native measurement/tier policy was
 promoted. Orientation saliency is a rejected standalone fallback trial.
 
 RestorationLab is a related but separate, effectively complete film-restoration
@@ -199,6 +214,6 @@ versioned runners accept explicit workspace/data paths; they are not photo-utils
 commands, menu items, pipeline stages or installation dependencies. Preserve the
 standalone restoration manifests rather than adding them to main CLI SQLite.
 No photographs, model weights or runtime environments are committed. Digital
-archival ingestion/RAW support, generic edits, Photos import/export and library
+archival ingestion/RAW support, generic edits, Photos export and broader library
 interoperability, Photomator automation, capture-date overrides, mixed/overlapping
 sheet layouts, manual geometry correction, Shortcuts and watchers remain deferred.

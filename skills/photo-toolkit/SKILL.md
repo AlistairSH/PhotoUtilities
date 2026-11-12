@@ -7,7 +7,7 @@ description: Run the local PhotoUtilities toolkit from plain-English requests to
 
 Use the existing local `photo-utils` CLI. Locate the repository from the current
 workspace or `~/Documents/PhotoScans/PhotoUtilities`; read its `AGENTS.md` and
-the relevant README commands. Run `.venv/bin/photo-utils` from that repository.
+the relevant commands in `CLI.md`. Run `.venv/bin/photo-utils` from that repository.
 Do not recreate analysis in ad hoc scripts.
 
 Route the request:
@@ -25,8 +25,7 @@ Route the request:
 - **Process an existing Polaroid sheet:** `process-sheet "/path/to/master.tif"
   --kind polaroids --find-similar`. Add `--retouch none` when splitting and
   grouping without edits is requested.
-- **Scan/split ordinary prints:** on the integrated ranking-culling branch use
-  `scan --kind prints` or `process-sheet SOURCE --kind prints`. This separates
+- **Scan/split ordinary prints:** use `scan --kind prints` or `process-sheet SOURCE --kind prints`. This separates
   rectangular prints against a contrasting background, auto-rotates where clear,
   and generates three-tier review. Ordinary prints cannot use Polaroid edits.
 - **Process photo folders:** `process TARGET...`, optionally `--recursive` and
@@ -52,14 +51,15 @@ not unmatched images. Report the actual failure and stop dependent processing;
 never silently omit failed inputs. A scan request authorizes acquisition;
 physical validation of the latest wrapper remains a separate check.
 
-## Current CLI integration (October 18)
+## Framewise for macOS
 
-On main, use `process TARGET...` for folders and `scan` or
-`process-sheet SOURCE` for sheets. These generate three-tier review and conservative
-visual quarter-turns by default. `--kind prints` now splits separated ordinary
-rectangular prints; it is no longer a placeholder. `--retouch none` skips edits
-but still splits; `scan --capture-only` saves an unsplit master. Polaroid editing
-remains the sole edit profile. `--open-review` starts explicit local cull controls.
-Possible Cull is advisory and never an archive selection. Preserve originals,
-verified ZIP recovery and SQLite lineage. Use PhotoSamples for future validation.
-RestorationLab is separate and must not be routed into these ordinary workflows.
+Framewise is the native app for reviewing files or selections from the system
+Photos picker. See the repository's `README.md` for usage and builds. It supports
+manual deletion with confirmation to the Mac Trash or Photos Recently Deleted.
+**Save to Photos** copies the chosen disk original into the Photos library.
+Framewise embeds the Favorite keyword in verified JPEG, PNG, TIFF and PSD files.
+HEIC/HEIF, RAW and unsafe layouts keep Favorites in the current review. Legacy
+XMP companions may initialize a Favorite and are left untouched.
+
+Use the CLI routes above when the request calls for scanner workflows, batch
+reports, saved history, or ZIP archive/restore. RestorationLab is separate.

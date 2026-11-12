@@ -9,12 +9,19 @@ __pycache__/
 .photo-utils-database
 .DS_Store
 
+# Generated SwiftPM state, staged dependencies and macOS app bundles.
+.build/
+.swiftpm/
+/experiments/apple_native/SIFTBridge/Artifacts/
+*.app/
+
 # Photo data, previews and databases stay outside Git.
 *.tif
 *.tiff
 *.jpg
 *.jpeg
 *.png
+!/experiments/apple_native/SIFTBridge/Resources/AppIcon.png
 *.heic
 *.sqlite
 *.db
