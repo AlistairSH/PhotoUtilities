@@ -3,17 +3,22 @@
 The Swift packages here power [Framewise](../../README.md). NativePhotoCore
 implements image handling, Apple Vision evidence, focus measurements, grouping
 and tier policy. SIFTBridge adds OpenCV matching and the NativePhotoAnalysis
-coordinator. Framewise uses the system Photos picker and, in the Photos-enabled
-build, PhotoKit for confirmed deletion. The analysis packages operate on selected
-files and do not modify them.
+coordinator. Framewise is the macOS review app. The standalone executables and
+comparison scripts below are development tools for validation and research.
 
-See the [app guide](UI.md) and [coordinator](COORDINATOR.md) for current usage and
-validation. Historical evidence includes the [SIFT gate](SIFT_GATE.md),
-[geometry gate](GEOMETRY_GATE.md), [edge correction](EDGE_PERFORMANCE.md),
-[decision parity](DECISION_PARITY.md), [dependency audit](AUDIT.md), and initial
-[comparison findings](FINDINGS.md). The [migration status](MIGRATION.md)
-distinguishes adopted and pending work. Scanner and batch workflows are
-documented in the [CLI guide](../../CLI.md).
+Use the [app guide](UI.md) for the supported file formats and Photos workflows.
+The Photos-enabled build can copy disk originals to Photos, read and change
+native Photos Favorites, save rotations to library assets, and move confirmed
+deletions to Recently Deleted. Framewise can also review compatible RAW files
+opened from disk. Its analysis libraries read the originals, and any file
+changes are separate actions in the app.
+
+See the [coordinator guide](COORDINATOR.md) for validation and the
+[migration guide](MIGRATION.md) for what Framewise uses today. Historical evidence
+includes the [SIFT gate](SIFT_GATE.md), [geometry gate](GEOMETRY_GATE.md),
+[edge correction](EDGE_PERFORMANCE.md), [decision parity](DECISION_PARITY.md),
+[dependency audit](AUDIT.md), and [initial findings](FINDINGS.md). The
+[CLI guide](../../CLI.md) covers scanner and batch workflows.
 
 ## Build and verification
 
@@ -138,8 +143,9 @@ crop x/y/width/height. Crop pixels use bottom-left origin after upright rotation
 Arbitrary rotation expands the canvas; it does not automatically crop corners or
 infer a horizon. Resizing never upscales. Export extension explicitly chooses
 JPEG, HEIC, PNG or TIFF. Decoder accepts ImageIO-supported single-image sources;
-RAW development/preview behavior and real RAW compatibility are unvalidated.
-A file accepted by ImageIO is not proof of archival fidelity.
+RAW review in Framewise has been tested with an Olympus E-M1 ORF and an iPhone
+12 Pro ProRAW DNG. This derivative probe produces display exports, and RAW
+archival fidelity has not been validated.
 
 **All derivatives are explicitly 8-bit sRGB display exports.** JPEG/HEIC are lossy;
 PNG/TIFF encode the rendered display pixels losslessly, not the original sensor
@@ -157,7 +163,7 @@ and embedded thumbnails and consumer caches need separate round-trip validation.
 The derivative EXIF color-space tag is explicitly normalized to sRGB.
 Source properties are inspectable, but original ICC binary identity, maker notes,
 XMP packets and rating/keyword discovery in Photos/Photomator are not guaranteed.
-No existing Photos library is touched or claimed to refresh from file edits.
+These probes work on disk files. Framewise’s Photos operations are described in the [app guide](UI.md).
 
 Homography uses Vision revision 1 with equal thumbnail dimensions; unequal
 geometry yields explicit unassessed status. Returned matrix/confidence is evidence
