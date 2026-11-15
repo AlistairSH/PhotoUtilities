@@ -1,10 +1,15 @@
 # PhotoUtilities scanner and batch CLI
 
+For automatic scene genres in the macOS review app, see [Framewise](README.md#review-photos).
+
 `photo-utils` is the offline command-line companion to [Framewise](README.md).
 Use it to acquire and split scanner sheets, process folders, apply the fixed
 Polaroid TIFF recipe, save review history, and archive or restore manually
 selected photos. SQLite records jobs and source/derivative relationships.
 [RestorationLab](RestorationLab/README.md) is a separate film-restoration tool.
+
+Framewise for Mac also offers [Scan Photos](README.md#scan-printed-photos) for
+native scanner capture and multi-sheet photo review.
 
 ## Quick start
 

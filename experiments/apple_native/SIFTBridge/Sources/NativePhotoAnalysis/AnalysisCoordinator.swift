@@ -84,6 +84,7 @@ public struct AnalysisResult: Sendable, Codable {
     public let orderedUngrouped: [Int]
     /// Complete policy evidence, reasons and measurements, in the existing review JSON format.
     public let policyJSON: Data
+    public let sceneGenres: [String: [SceneGenre]]?
 }
 
 /// Serial actor keeps Vision/SIFT handles confined and CPU work away from MainActor.
@@ -96,7 +97,7 @@ public actor AnalysisCoordinator {
     /// for the duration. Failure/cancellation throws; no partial result is published.
     /// Progress executes on this actor; hop to MainActor before updating UI state.
     /// Cancellation is cooperative between synchronous Vision/measurement/SIFT operations.
-    public func analyze(_ inputs: [AnalysisInput], autoRotate: Bool = true,
+    public func analyze(_ inputs: [AnalysisInput], autoRotate: Bool = true, classifyScenes: Bool = false,
                         progress: @Sendable (AnalysisProgress) -> Void = { _ in }) async throws -> AnalysisResult {
         let started = ProcessInfo.processInfo.systemUptime
         var previousStage: AnalysisProgress.Stage?
@@ -135,11 +136,16 @@ public actor AnalysisCoordinator {
         }
         var sources: [AnalyzedSource] = [], images: [ReviewImage] = [], scales: [ReviewScale] = []
         var prints: [VNFeaturePrintObservation] = [], features: [SIFTFeatures] = []
+        var sceneGenres: [String: [SceneGenre]] = [:]
         report(.analyzing,0,inputs.count)
         for (i,input) in inputs.enumerated() {
             try check()
             try autoreleasepool {
-                let evidence = try LivePhotoAnalysis.analyze(url:input.url,autoRotate:autoRotate && input.keepsEmbeddedOrientation != true,checkpoint:check) { rgba,w,h in
+                let evidence = try LivePhotoAnalysis.analyze(url:input.url,autoRotate:autoRotate && input.keepsEmbeddedOrientation != true,checkpoint:check, inspectImage: { image in
+                    if classifyScenes && !Task.isCancelled {
+                        sceneGenres[input.id] = try? SceneGenre.classify(image)
+                    }
+                }) { rgba,w,h in
                     features.append(try SIFTFeatures(rgba:rgba,width:w,height:h))
                 }
                 sources.append(AnalyzedSource(input:input,sha256:hashes[i],rotation:evidence.rotation,siftKeypoints:features.last!.keypointCount))
@@ -209,7 +215,7 @@ public actor AnalysisCoordinator {
         report(.complete,inputs.count,inputs.count)
         timings["total"] = ProcessInfo.processInfo.systemUptime-started
         let result = AnalysisResult(configuration:configuration,timings:timings,sources:sources,batch:batch,pairEvidence:pairEvidence,photos:photos,orderedGroups:groups,
-            orderedUngrouped:ungrouped,policyJSON:policyJSON)
+            orderedUngrouped:ungrouped,policyJSON:policyJSON,sceneGenres:classifyScenes ? sceneGenres : nil)
         return result
     }
 

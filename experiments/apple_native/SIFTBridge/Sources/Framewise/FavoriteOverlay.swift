@@ -17,15 +17,6 @@ struct FavoriteOverlay: View {
                 .foregroundStyle(.white)
                 .frame(width: 32, height: 32)
                 .background(.black.opacity(0.65), in: Circle())
-                .overlay(alignment: .bottomTrailing) {
-                    if state.fileSnapshot?.sessionOnly == true {
-                        Image(systemName: "clock.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(2)
-                            .background(.black.opacity(0.85), in: Circle())
-                            .accessibilityHidden(true)
-                    }
-                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

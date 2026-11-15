@@ -55,6 +55,9 @@ func writeImage(_ url: URL) throws {
             _ = try ReviewBatch(images:result.batch.images,pairs:[ReviewPair(a:0,b:99,level:"likely")],scales:result.batch.focus_rows)
             fatalError("Accepted out-of-bounds pair")
         } catch {}
+        let categorized = try await coordinator.analyze(inputs, autoRotate: false, classifyScenes: true)
+        precondition(Set(categorized.sceneGenres?.keys.map { $0 } ?? []) == Set(inputs.map(\.id)))
+        precondition(categorized.policyJSON == result.policyJSON, "Genre analysis changed review policy")
         let after = try Data(contentsOf:first)
         precondition(after == original)
         for stage in [AnalysisProgress.Stage.analyzing,.matching,.ranking,.verifying] {

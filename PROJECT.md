@@ -19,6 +19,19 @@ use the current review only. Photos assets use the library’s native Favorite f
 **Save to Photos** copies a selected disk original into the library using add-only
 PhotoKit access, including RAW files that Photos accepts.
 
+Framewise requires macOS 27. Both review flows use local Vision classification
+to suggest zero or more scene genres. Reviewers can add and remove labels.
+Verified disk writes use embedded IPTC Keywords, and Photos selections use
+native keywords on the selected asset. Unsupported files retain labels for
+the review only.
+
+The Mac app has an Image Capture scanner source, an optional local SANE backend, and can queue several
+sheets for one review. Framewise saves sheet masters and extracted TIFFs in
+Downloads by default. Its Polaroid path keeps uncorrected crops and applies the
+CLI tone and channel curve in native code. The scanner panel uses separate
+date-stamped output folders. CLI acquisition IDs and SQLite job history apply
+to the CLI workflow. Native scanner hardware validation remains pending.
+
 Reviews live in memory for the session. Saved reviews and device validation remain
 open. See [the app guide](experiments/apple_native/UI.md) and
 [coordinator validation](experiments/apple_native/COORDINATOR.md).

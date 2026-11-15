@@ -27,7 +27,7 @@ let package = Package(name:"NativeSIFTBridge",platforms:[.macOS(.v14),.iOS(.v17)
         .target(name:"CSIFT",dependencies:dependencies,publicHeadersPath:"include",cxxSettings:cSettings,linkerSettings:linkSettings),
         .target(name:"NativeSIFT",dependencies:["CSIFT"]),
         .target(name:"NativePhotoAnalysis",dependencies:["NativeSIFT",.product(name:"NativePhotoCore",package:"apple_native")]),
-        .executableTarget(name:"Framewise",dependencies:["NativePhotoAnalysis"]),
+        .executableTarget(name:"Framewise",dependencies:["NativePhotoAnalysis","CSIFT"]),
         .executableTarget(name:"native-analyze",dependencies:["NativePhotoAnalysis"]),
         .executableTarget(name:"analysis-checks",dependencies:["NativePhotoAnalysis",.product(name:"NativePhotoCore",package:"apple_native")]),
         .executableTarget(name:"native-sift",dependencies:["NativeSIFT",.product(name:"NativePhotoCore",package:"apple_native")]),

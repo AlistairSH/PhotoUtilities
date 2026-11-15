@@ -60,6 +60,12 @@ manual deletion with confirmation to the Mac Trash or Photos Recently Deleted.
 Framewise embeds the Favorite keyword in verified JPEG, PNG, TIFF and PSD files.
 HEIC/HEIF, RAW and unsafe layouts keep Favorites in the current review. Legacy
 XMP companions may initialize a Favorite and are left untouched.
+Framewise requires macOS 27. It suggests genres locally during review and
+writes verified embedded IPTC Keywords or native Photos keywords. Review-only
+labels are identified on the card when the original cannot be updated.
+
+The Mac app’s **Scan Photos…** source uses installed SANE in the local build and can combine
+multiple sheets into one review. Its default output destination is Downloads.
 
 Use the CLI routes above when the request calls for scanner workflows, batch
 reports, saved history, or ZIP archive/restore. RestorationLab is separate.

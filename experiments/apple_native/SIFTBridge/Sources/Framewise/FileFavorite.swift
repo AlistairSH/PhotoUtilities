@@ -55,11 +55,23 @@ struct FavoriteXMP {
     init(_ data: Data?) throws {
         let trailing = data?.reversed().prefix { $0 == 0 }.count ?? 0
         trailingZeros = trailing
-        document = try XMLDocument(data: data.map { Data($0.dropLast(trailing)) } ?? Data("""
+        let packet = data.map { Data($0.dropLast(trailing)) } ?? Data("""
             <x:xmpmeta xmlns:x="adobe:ns:meta/">
               <rdf:RDF xmlns:rdf="\(Self.rdf)"><rdf:Description rdf:about=""/></rdf:RDF>
             </x:xmpmeta>
-            """.utf8), options: [.nodePreserveAll, .nodeLoadExternalEntitiesNever])
+            """.utf8)
+        // Some scanner exports replace the initial "h" in this exact XMP
+        // Media Management namespace. Repair only that declaration.
+        let badNamespace = Data("xmlns:xmpMM=\"(ttp://ns.adobe.com/xap/1.0/mm/\"".utf8)
+        var repaired = packet
+        if let range = packet.range(of: badNamespace) {
+            repaired.replaceSubrange(range, with: Data("xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\"".utf8))
+        }
+        do {
+            document = try XMLDocument(data: repaired, options: [.nodePreserveAll, .nodeLoadExternalEntitiesNever])
+        } catch {
+            throw FileFavorite.StorageError.unsafe
+        }
         guard document.dtd == nil, let root = document.rootElement() else { throw FileFavorite.StorageError.unsafe }
         if root.localName == "RDF", root.uri == Self.rdf {
             graph = root
@@ -95,14 +107,15 @@ struct FavoriteXMP {
         }
     }
 
-    private func favoriteItems(in bags: [XMLElement]) -> [XMLElement] {
+    private func keywordItems(in bags: [XMLElement]) -> [XMLElement] {
         bags.flatMap { $0.elements(forLocalName: "li", uri: Self.rdf) }.filter {
-            $0.stringValue == FileFavorite.keyword && $0.attributes?.isEmpty != false
-                && $0.children?.allSatisfy { $0.kind == .text } == true
+            $0.attributes?.isEmpty != false && $0.children?.allSatisfy { $0.kind == .text } == true
         }
     }
 
-    func hasFavorite() throws -> Bool { try !favoriteItems(in: bags()).isEmpty }
+    func keywords() throws -> [String] { try keywordItems(in: bags()).compactMap(\.stringValue) }
+
+    func hasFavorite() throws -> Bool { try keywords().contains(FileFavorite.keyword) }
 
     var legacyRemoval: Bool {
         descriptions.flatMap { $0.elements(forLocalName: "EmbeddedFavoriteRemoved", uri: Self.framewise) }
@@ -118,23 +131,31 @@ struct FavoriteXMP {
     }
 
     func update(favorite: Bool, receipt: String?) throws -> Bool {
-        var changed = false
-        let bags = try bags()
-        let items = favoriteItems(in: bags)
-        if !favorite && !items.isEmpty { items.forEach { $0.detach() }; changed = true }
-        if favorite && items.isEmpty {
-            changed = true
-            let description = descriptions.first ?? append("rdf:Description", uri: Self.rdf, to: graph)
-            let bag = bags.first ?? append("rdf:Bag", uri: Self.rdf,
-                to: append("dc:subject", uri: Self.dc, to: description))
-            append("rdf:li", uri: Self.rdf, to: bag).stringValue = FileFavorite.keyword
-        }
+        var changed = try updateKeywords(adding: favorite ? [FileFavorite.keyword] : [],
+                                         removing: favorite ? [] : [FileFavorite.keyword])
         if let receipt, !imported(receipt) {
             changed = true
             let description = descriptions.first ?? append("rdf:Description", uri: Self.rdf, to: graph)
             append("framewise:\(Self.receipt)", uri: Self.framewise, to: description).stringValue = receipt
         }
         return changed
+    }
+
+    func updateKeywords(adding: Set<String>, removing: Set<String>) throws -> Bool {
+        let bags = try bags()
+        let items = keywordItems(in: bags)
+        let removed = items.filter { $0.stringValue.map(removing.contains) == true }
+        let additions = adding.subtracting(items.compactMap(\.stringValue))
+        removed.forEach { $0.detach() }
+        if !additions.isEmpty {
+            let description = descriptions.first ?? append("rdf:Description", uri: Self.rdf, to: graph)
+            let bag = bags.first ?? append("rdf:Bag", uri: Self.rdf,
+                to: append("dc:subject", uri: Self.dc, to: description))
+            for keyword in additions.sorted() {
+                append("rdf:li", uri: Self.rdf, to: bag).stringValue = keyword
+            }
+        }
+        return !removed.isEmpty || !additions.isEmpty
     }
 
     var data: Data { document.xmlData(options: [.nodePreserveAll]) + Data(repeating: 0, count: trailingZeros) }
@@ -163,10 +184,11 @@ extension FileFavorite {
         let format: FavoriteContainer.Format?
         let properties: NSDictionary
         let favorite: Bool
+        let keywords: Set<String>
 
         init(_ source: CGImageSource?) {
             guard let source, CGImageSourceGetCount(source) > 0 else {
-                format = nil; properties = [:]; favorite = false
+                format = nil; properties = [:]; favorite = false; keywords = []
                 return
             }
             let type = CGImageSourceGetType(source).map { $0 as String }
@@ -180,8 +202,8 @@ extension FileFavorite {
             let xmp = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
             let subject = xmp.flatMap { CGImageMetadataCopyTagWithPath($0, nil, "dc:subject" as CFString) }
             let values = subject.flatMap(CGImageMetadataTagCopyValue) as? [CGImageMetadataTag] ?? []
-            favorite = keywords.contains(keyword)
-                || values.contains { CGImageMetadataTagCopyValue($0) as? String == keyword }
+            self.keywords = Set(keywords + values.compactMap { CGImageMetadataTagCopyValue($0) as? String })
+            favorite = self.keywords.contains(keyword)
             var comparable = properties
             // IPTC Keywords may be a synthesized view of XMP or legacy IPTC.
             // Both sets of unrelated keywords are protected by the container edit.
@@ -257,23 +279,66 @@ extension FileFavorite {
 
     private static func write(_ favorite: Bool, to image: URL, expectedDigest: String, importing old: LegacyFavorite?) throws -> String {
         let receipt = old?.receipt
+        return try edit(image, expectedDigest: expectedDigest, recheck: {
+            if let old, try legacy(image)?.digest != old.digest { throw StorageError.changed }
+        }) { original, source, format in
+            if favorite && source.favorite && receipt == nil { return (original, { _ in }) }
+            let candidate = try FavoriteContainer.process(original, format: format, favorite: favorite, receipt: receipt).bytes
+            if candidate == original && favorite != source.favorite { throw StorageError.unsafe }
+            if let receipt {
+                guard let packet = try FavoriteContainer.process(candidate, format: format).packet,
+                      try FavoriteXMP(packet).imported(receipt) else { throw StorageError.unsafe }
+            }
+            return (candidate, { output in
+                guard output.favorite == favorite else { throw StorageError.unsafe }
+            })
+        }
+    }
+
+    static func writeGenres(adding: Set<String>, removing: Set<String>, to image: URL,
+                            expectedDigest: String) throws -> (digest: String, inserted: Set<String>, existing: Set<String>) {
+        var inserted: Set<String> = [], existing: Set<String> = []
+        let digest = try edit(image, expectedDigest: expectedDigest) { original, source, format in
+            let originalMetadata = try FavoriteContainer.process(original, format: format)
+            let embedded = try Set(FavoriteXMP(originalMetadata.packet).keywords())
+            existing = source.keywords.union(embedded).union(originalMetadata.legacyKeywords ?? [])
+            inserted = adding.subtracting(existing)
+            let candidate = try FavoriteContainer.process(original, format: format,
+                genreAdditions: inserted, genreRemovals: removing).bytes
+            let updated = try FavoriteContainer.process(candidate, format: format)
+            let expected = embedded.subtracting(removing).union(inserted)
+            guard try Set(FavoriteXMP(updated.packet).keywords()) == expected,
+                  updated.legacyKeywords == originalMetadata.legacyKeywords?.subtracting(removing).union(inserted)
+                    || updated.legacyKeywords == originalMetadata.legacyKeywords?.subtracting(removing)
+                else { throw StorageError.verification }
+            let independentlyStored = expected.union(updated.legacyKeywords ?? [])
+            return (candidate, { output in
+                let verified = output.keywords.union(independentlyStored)
+                guard output.favorite == source.favorite,
+                      existing.subtracting(removing).union(inserted).isSubset(of: verified),
+                      verified.isDisjoint(with: removing) else { throw StorageError.verification }
+            })
+        }
+        return (digest, inserted, existing)
+    }
+
+    private static func edit(_ image: URL, expectedDigest: String, recheck: () throws -> Void = {},
+                             transform: (Data, Metadata, FavoriteContainer.Format) throws -> (Data, (Metadata) throws -> Void)) throws -> String {
         try Task.checkCancellation()
         let before = try fileStat(image)
         let original = try Data(contentsOf: image)
         guard digest(original) == expectedDigest else { throw StorageError.changed }
         let source = Metadata(CGImageSourceCreateWithData(original as CFData, nil))
         guard !isRAW(image), let format = source.format else { throw StorageError.unsafe }
-        if favorite && source.favorite && receipt == nil { return expectedDigest }
-        let candidate = try FavoriteContainer.process(original, format: format, favorite: favorite, receipt: receipt).bytes
-        guard candidate != original else {
-            guard favorite == source.favorite else { throw StorageError.unsafe }
-            return expectedDigest
-        }
+        let (candidate, verify) = try transform(original, source, format)
+        guard candidate != original else { return expectedDigest }
 
         guard before.st_mode & 0o222 != 0, FileManager.default.isWritableFile(atPath: image.path) else {
             throw CocoaError(.fileWriteNoPermission)
         }
         let manager = FileManager.default
+        // Ask macOS for a same-volume replacement directory. A sandbox
+        // grant for the selected file doesn't extend to siblings.
         let staging = try manager.url(for: .itemReplacementDirectory, in: .userDomainMask,
                                       appropriateFor: image, create: true)
         defer { try? manager.removeItem(at: staging) }
@@ -282,12 +347,19 @@ extension FileFavorite {
         let updatedDigest = digest(candidate)
         guard try digestFile(temporary) == updatedDigest else { throw StorageError.verification }
         let output = Metadata(CGImageSourceCreateWithURL(temporary as CFURL, nil))
-        guard output.format == format, output.favorite == favorite,
-              output.properties == source.properties else { throw StorageError.unsafe }
-        if let receipt {
-            guard let packet = try FavoriteContainer.process(candidate, format: format).packet,
-                  try FavoriteXMP(packet).imported(receipt) else { throw StorageError.unsafe }
-        }
+        guard output.format == format, output.properties == source.properties else { throw StorageError.unsafe }
+        try verify(output)
+
+        // Access metadata can change when macOS opens a file. Capture the
+        // version after reading and before copying its current attributes.
+        guard try digestFile(image) == expectedDigest else { throw StorageError.changed }
+        let metadataBaseline = try fileStat(image)
+        guard metadataBaseline.st_dev == before.st_dev, metadataBaseline.st_ino == before.st_ino,
+              metadataBaseline.st_mode == before.st_mode, metadataBaseline.st_uid == before.st_uid,
+              metadataBaseline.st_gid == before.st_gid,
+              metadataBaseline.st_mtimespec.tv_sec == before.st_mtimespec.tv_sec,
+              metadataBaseline.st_mtimespec.tv_nsec == before.st_mtimespec.tv_nsec
+        else { throw StorageError.changed }
 
         // Copy POSIX metadata, ACL and extended attributes (including resource
         // forks) before publication. Refuse if the volume won't preserve them.
@@ -301,15 +373,14 @@ extension FileFavorite {
         let ready = try fileStat(temporary)
         guard ready.st_dev == before.st_dev, ready.st_mode == before.st_mode,
               ready.st_uid == before.st_uid, ready.st_gid == before.st_gid,
-              ready.st_flags == before.st_flags else { throw StorageError.attributes }
+              preservedFlags(ready) == preservedFlags(metadataBaseline) else { throw StorageError.attributes }
         let handle = try FileHandle(forReadingFrom: temporary)
         defer { try? handle.close() }
         try handle.synchronize()
         guard try digestFile(temporary) == updatedDigest else { throw StorageError.attributes }
-        if let old, try legacy(image)?.digest != old.digest { throw StorageError.changed }
+        try recheck()
         let current = try fileStat(image)
-        guard sameVersion(before, current), try digestFile(image) == expectedDigest,
-              try sameVersion(current, fileStat(image)) else { throw StorageError.changed }
+        guard sameContentsVersion(metadataBaseline, current) else { throw StorageError.changed }
         try Task.checkCancellation()
         let result = temporary.withUnsafeFileSystemRepresentation { src in
             image.withUnsafeFileSystemRepresentation { dst -> Int32 in
@@ -334,10 +405,15 @@ extension FileFavorite {
         return value
     }
 
-    private static func sameVersion(_ a: stat, _ b: stat) -> Bool {
+    private static func preservedFlags(_ attributes: stat) -> UInt32 {
+        // The content update can set macOS’s document-ID tracking flag.
+        attributes.st_flags & ~UInt32(UF_TRACKED)
+    }
+
+    private static func sameContentsVersion(_ a: stat, _ b: stat) -> Bool {
         a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_size == b.st_size
             && a.st_mtimespec.tv_sec == b.st_mtimespec.tv_sec && a.st_mtimespec.tv_nsec == b.st_mtimespec.tv_nsec
-            && a.st_ctimespec.tv_sec == b.st_ctimespec.tv_sec && a.st_ctimespec.tv_nsec == b.st_ctimespec.tv_nsec
+            && a.st_mode == b.st_mode && a.st_uid == b.st_uid && a.st_gid == b.st_gid && preservedFlags(a) == preservedFlags(b)
     }
 
     private static func posixError() -> POSIXError { POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }

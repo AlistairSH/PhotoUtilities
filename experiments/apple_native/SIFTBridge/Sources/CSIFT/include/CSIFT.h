@@ -16,6 +16,9 @@ typedef struct {
     int32_t sift_candidate;
 } NPSIFTResult;
 const char *npsift_version(void);
+// Output contains up to 20 quads with four clockwise x/y pairs per quad.
+int32_t np_scan_quads(const uint8_t *gray, int32_t width, int32_t height,
+                      int32_t polaroids, float *corners);
 int npsift_extract_rgba(const uint8_t *pixels, size_t length, int32_t width,
                        int32_t height, size_t stride, NPSIFTFeatures **output,
                        char *error, size_t error_capacity);

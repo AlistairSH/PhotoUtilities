@@ -16,6 +16,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 }
 
 @MainActor final class ReviewModel: ObservableObject {
+    @Published private(set) var incomingPreviews: [URL]?
     @Published var inputs: [URL] = []
     @Published var result: AnalysisResult?
     @Published var selectedSet = 0
@@ -26,6 +27,8 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     @Published var phaseTitle = "Step 1 of 5 · Check selected photos"
     @Published var startedAt: Date?
     @Published var error: String?
+    @Published private(set) var savingGenres = false
+    @Published private var genres: [FavoriteIdentity: ReviewGenres] = [:]
     @Published private(set) var savingFavorite = false
     @Published private var favorites: [FavoriteIdentity: FavoriteState] = [:]
     @Published private(set) var savingRotation = false
@@ -46,7 +49,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     private var photosSavedAt: [String: Date] = [:]
 
     var isPhotosSelection: Bool { !pickedFiles.isEmpty }
-    var busy: Bool { running || deleting || savingRotation || savingFavorite || savingToPhotos }
+    var busy: Bool { running || deleting || savingRotation || savingFavorite || savingGenres || savingToPhotos }
 
     var sets: [[Int]] {
         guard let result else { return [] }
@@ -73,12 +76,24 @@ typealias ViewState<Value> = SwiftUI.State<Value>
         analyze()
     }
 
+    func reviewScannedPhotos(_ urls: [URL], folder: URL) {
+        guard !busy, !urls.isEmpty else { return }
+        let access = folder.startAccessingSecurityScopedResource()
+        scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+        scoped = access ? [folder] : []
+        pickedFiles = []
+        assetIdentifiers = [:]
+        setInputs(urls)
+        analyze()
+    }
+
     func loadPhotos(_ selection: [PhotosPickerItem]) {
         guard !busy, !selection.isEmpty else { return }
         let previousStatus = status
         let loadedAt = Date()
         generation = UUID()
         running = true; cancelling = false; error = nil; fraction = 0
+        incomingPreviews = []
         phaseTitle = "Load selected photos"
         status = "Loaded 0 of \(selection.count) selected photos"
         startedAt = Date()
@@ -108,6 +123,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                         throw PickedPhotoFile.ImportError.unavailable
                     }
                     loaded.append(photo)
+                    incomingPreviews?.append(photo.url)
                     identifiers[photo.url] = item.itemIdentifier
                     status = "Loaded \(loaded.count) of \(selection.count) selected photos"
                     fraction = Double(loaded.count) / Double(selection.count)
@@ -118,6 +134,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 assetIdentifiers = identifiers
                 photosLoadedAt = loadedAt
                 setInputs(loaded.map(\.url))
+                incomingPreviews = nil
                 await scan()
             } catch {
                 status = Task.isCancelled ? "Scan stopped" : previousStatus
@@ -131,6 +148,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     private func setInputs(_ urls: [URL]) {
         inputs = urls
         favorites = [:]
+        genres = [:]
         rotations = [:]
         photosSavedAt = [:]
         savedInputURLs = []
@@ -149,6 +167,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
     }
 
     private func finishScan() {
+        incomingPreviews = nil
         photosTransfer = nil
         running = false
         cancelling = false
@@ -173,9 +192,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
             reason:"Review user-selected photos")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         do {
-            let value = try await coordinator.analyze(analysisInputs) { progress in
+            let value = try await coordinator.analyze(analysisInputs, classifyScenes: true) { progress in
                 Task { @MainActor [weak self] in
-                    guard let self, self.generation == runID, self.running, !self.cancelling else { return }
+                    guard let self, self.generation == runID, self.running, !self.cancelling, self.result == nil else { return }
                     let title: String, detail: String
                     let count = progress.completed.formatted(), total = progress.total.formatted()
                     switch progress.stage {
@@ -216,6 +235,9 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 }
             }
             result = value; selectedSet = 0
+            try await applyGenreSuggestions(value)
+            try Task.checkCancellation()
+            fraction = 1
             status = "\(value.photos.count) \(value.photos.count == 1 ? "photo" : "photos") reviewed in \(duration(value.timings?["total"] ?? 0))"
         } catch is CancellationError {
             status = "Scan stopped"
@@ -314,6 +336,115 @@ typealias ViewState<Value> = SwiftUI.State<Value>
         }
     }
 
+    private func genreIdentity(for source: AnalyzedSource) -> FavoriteIdentity {
+        let url = (rotation(for: source).savedSource ?? source).input.url
+        return favoriteIdentity(for: url) ?? .file(url)
+    }
+
+    func genreControls(for source: AnalyzedSource) -> GenreControls {
+        GenreControls(state: genres[genreIdentity(for: source)] ?? ReviewGenres(),
+                      enabled: !busy) { self.toggleGenre($0, for: source) }
+    }
+
+    private func applyGenreSuggestions(_ value: AnalysisResult) async throws {
+        phaseTitle = "Save genre keywords"
+        for (index, source) in value.sources.enumerated() {
+            try Task.checkCancellation()
+            let identity = genreIdentity(for: source)
+            var state = genres[identity] ?? ReviewGenres()
+            let suggestions = value.sceneGenres?[source.input.id]
+            state.analysisUnavailable = suggestions == nil
+            let additions = Set(suggestions ?? []).subtracting(state.dismissed)
+            state.labels.formUnion(additions)
+            genres[identity] = state
+            fraction = Double(index) / Double(value.sources.count)
+            status = "Saving genre keywords for photo \(index + 1) of \(value.sources.count)"
+            // Read existing genre keywords even when Vision abstains.
+            await saveGenres(for: source, adding: additions, removing: [])
+        }
+    }
+
+    private func toggleGenre(_ genre: SceneGenre, for source: AnalyzedSource) {
+        guard !busy else { return }
+        let identity = genreIdentity(for: source)
+        var state = genres[identity] ?? ReviewGenres()
+        let remove = state.labels.contains(genre)
+        if remove {
+            // Keep a saved label visible until storage confirms removal.
+            if !state.savedLabels.contains(genre) { state.labels.remove(genre) }
+            state.dismissed.insert(genre)
+        } else {
+            state.dismissed.remove(genre)
+            state.labels.insert(genre)
+        }
+        genres[identity] = state
+        savingGenres = true
+        Task {
+            defer { savingGenres = false }
+            await saveGenres(for: source, adding: remove ? [] : [genre], removing: remove ? [genre] : [])
+        }
+    }
+
+    private func saveGenres(for source: AnalyzedSource, adding: Set<SceneGenre>, removing: Set<SceneGenre>) async {
+        let identity = genreIdentity(for: source)
+        var state = genres[identity] ?? ReviewGenres()
+        var draft = rotation(for: source)
+        let current = draft.savedSource ?? source
+        state.detail = nil
+        state.failureReason = nil
+        do {
+            switch identity {
+            case .file(let url):
+                if isPhotosSelection { throw GenreError.assetUnavailable }
+                let expected = current.sha256
+                let insert = Set(adding.map(\.rawValue))
+                let delete = Set(removing.map(\.rawValue))
+                let worker = Task.detached(priority: .userInitiated) {
+                    try FileFavorite.writeGenres(adding: insert, removing: delete, to: url, expectedDigest: expected)
+                }
+                let change = try await withTaskCancellationHandler(operation: { try await worker.value },
+                                                                   onCancel: { worker.cancel() })
+                let keywords = change.existing.subtracting(delete).union(change.inserted)
+                let existing = Set(keywords.compactMap(SceneGenre.init(rawValue:)))
+                state.labels.subtract(state.savedLabels.subtracting(existing))
+                state.labels.subtract(removing)
+                state.labels.formUnion(existing)
+                state.savedLabels = existing
+                if change.digest != expected {
+                    draft.savedSource = current.withMetadataChecksum(change.digest)
+                    rotations[source.input.id] = draft
+                }
+            case .photos(let identifier):
+                guard #available(macOS 27, *) else { throw GenreError.assetUnavailable }
+                let change = try await PhotosGenres.write(identifier: identifier, adding: Set(adding.map(\.rawValue)),
+                    removing: Set(removing.map(\.rawValue)),
+                    loadedAt: photosSavedAt[identifier] ?? photosLoadedAt)
+                let existing = Set(change.keywords.compactMap(SceneGenre.init(rawValue:)))
+                state.labels.subtract(state.savedLabels.subtracting(existing))
+                state.labels.subtract(removing)
+                state.labels.formUnion(existing)
+                state.savedLabels = existing
+                if let editedAt = change.editedAt { photosSavedAt[identifier] = editedAt }
+            }
+        } catch {
+            let savedRemovals = removing.intersection(state.savedLabels)
+            state.dismissed.subtract(savedRemovals)
+            state.labels.formUnion(savedRemovals)
+            if error is CancellationError {
+                genres[identity] = state
+                return
+            }
+            if !savedRemovals.isEmpty {
+                state.detail = isPhotosSelection ? "Couldn’t remove the genre from Photos." : "Couldn’t remove the genre from the file."
+                state.failureReason = error.localizedDescription
+            } else if !state.labels.isEmpty || !removing.isEmpty {
+                state.detail = "Genres are available for this review only."
+                state.failureReason = error.localizedDescription
+            }
+        }
+        genres[identity] = state
+    }
+
     func rotation(for source: AnalyzedSource) -> ReviewRotation {
         rotations[source.input.id] ?? ReviewRotation(source: source)
     }
@@ -388,10 +519,11 @@ typealias ViewState<Value> = SwiftUI.State<Value>
         Task {
             defer { photosSaveState.activeURL = nil }
             do {
-                try await Task.detached(priority: .userInitiated) {
+                let note = try await Task.detached(priority: .userInitiated) {
                     try await ReviewImport.saveToPhotos(current)
                 }.value
                 photosSaveState.savedURLs.insert(source.input.url)
+                if let note { self.error = note }
             } catch {
                 self.error = "Couldn’t save “\(name)” to Photos. \(error.localizedDescription)"
             }
@@ -440,6 +572,8 @@ typealias ViewState<Value> = SwiftUI.State<Value>
                 } else if sets[selectedSet].isEmpty {
                     selectedSet = sets.firstIndex { !$0.isEmpty } ?? 0
                 }
+            } catch let error as PHPhotosError where identifier != nil && error.code == .userCancelled {
+                return
             } catch {
                 self.error = error.localizedDescription
             }
@@ -514,6 +648,7 @@ struct PhotoCard: View {
     let canRotate: Bool
     let canSaveRotation: Bool
     let favorite: FavoriteOverlay
+    let genres: GenreControls
     let openZoom: () -> Void
     let requestDelete: () -> Void
     let canDelete: Bool
@@ -521,6 +656,27 @@ struct PhotoCard: View {
     let photosSaveState: PhotosSaveState
     @ViewState private var thumbnail: CGImage?
     @ViewState private var unavailable = false
+
+    private func reviewNote(_ reason: String) -> String {
+        switch reason {
+        case "Utility image": "Possible reference material"
+        case "Low subject detail — bottom 10% of full sample": "Less subject detail than full set"
+        case "Low subject detail — peer ≥1.5× on both detail metrics": "A similar photo shows more subject detail"
+        case "More endpoint clipping — ≥2 percentage points above best reference": "Detail lost in bright or dark areas"
+        case "Both eyes reported closed on every assessed face; open-eye alternative available": "Eyes may be closed"
+        case "Farther from center/thirds anchors — provisional composition suggestion": "Possible poor composition"
+        case "Top aesthetic decile across the entire sample, with no technical cull flags": "Among the highest-rated photos in this review"
+        case "Highest face-capture score ≥0.10 above every other scored group member": "Best face capture in this set"
+        case "Subject detail ≥1.5× every same-kind peer on both Laplacian and Tenengrad": "More subject detail than comparable shots"
+        case let detail where detail.contains("attention-only focus fallback"):
+            "An area that draws attention may be soft. Framewise couldn’t identify the subject."
+        case let detail where detail.contains("has less measured detail than outside pixels"):
+            "A detected subject may be softer than its surroundings."
+        case let detail where detail.hasPrefix("Low global detail"):
+            "The whole photo shows less detail than other photos in this review."
+        default: reason
+        }
+    }
 
     private var previewSource: AnalyzedSource { rotation.savedSource ?? source }
     private var boxTurns: Int { (rotation.totalTurns - source.rotation.quarter_turns_clockwise + 4) % 4 }
@@ -565,16 +721,30 @@ struct PhotoCard: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel(source.input.url.lastPathComponent)
                 .overlay(alignment: .bottomLeading) { favorite }
+                .overlay(alignment: .topTrailing) { RawPreviewBadge(url: previewSource.input.url) }
             VStack(alignment:.leading,spacing:7) {
                 Text(source.input.url.lastPathComponent).font(.headline).lineLimit(1)
                     .help(fromPhotos ? "Selected from Photos" : source.input.url.path)
+                genres
                 Text("Rank within set: \(rank)/\(setSize)").font(.caption).foregroundStyle(.secondary)
+                let reviewReasons = photo.topPickReasons + photo.reasons + photo.compositionAdvisories
                 if photo.possibleMissedFocus {
-                    Label("Possible Missed Focus",systemImage:"viewfinder").foregroundStyle(.orange)
-                    ForEach(photo.focusReasons,id:\.self) { Text($0).font(.caption) }
-                } else { Text("Focus review: No").font(.caption).foregroundStyle(.secondary) }
-                if let role = photo.relativeFocus { Text("Relative focus: \(role)").font(.caption) }
-                ForEach(photo.topPickReasons + photo.reasons + photo.compositionAdvisories,id:\.self) { Text($0).font(.caption) }
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 5) {
+                            ForEach(Array(Set(photo.focusReasons.map(reviewNote))).sorted(), id: \.self) { Text($0).font(.caption) }
+                            if let role = photo.relativeFocus { Text("Relative focus: \(role)").font(.caption) }
+                            ForEach(reviewReasons.filter { $0.hasPrefix("Low subject detail") }, id: \.self) {
+                                Text(reviewNote($0)).font(.caption)
+                            }
+                        }
+                    } label: {
+                        Label("Possible Missed Focus", systemImage: "viewfinder").foregroundStyle(.orange)
+                    }
+                } else if let role = photo.relativeFocus {
+                    Text("Relative focus: \(role)").font(.caption)
+                }
+                ForEach(reviewReasons.filter { !photo.possibleMissedFocus || !$0.hasPrefix("Low subject detail") },
+                        id: \.self) { Text(reviewNote($0)).font(.caption) }
                 if rotation.pendingTurns != 0 {
                     let degrees = [0, 90, 180, 90][rotation.pendingTurns]
                     let direction = rotation.pendingTurns == 3 ? "left" : "right"
@@ -584,32 +754,37 @@ struct PhotoCard: View {
                     Label("Rotation saved", systemImage: "checkmark.circle").font(.caption)
                 }
                 Spacer(minLength: 0)
-                if !fromPhotos {
-                    SaveToPhotosButton(state: photosSaveState, url: source.input.url,
-                                       enabled: canRotate, save: saveToPhotos)
-                }
-                HStack {
-                    Button("Rotate Left", systemImage: "rotate.left", action: rotateLeft)
-                        .disabled(!canRotate)
-                    Button("Save Rotation", systemImage: "square.and.arrow.down", action: saveRotation)
-                        .disabled(!canSaveRotation)
-                        .help(fromPhotos ? "Save the displayed rotation to Photos" : "Save the displayed rotation to this file")
-                }
-                .font(.caption)
-                HStack {
-                    Button("Zoom…", systemImage: "magnifyingglass", action: openZoom)
-                    if !fromPhotos {
-                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([source.input.url]) }
-                            .buttonStyle(.link)
+                Grid(horizontalSpacing: 8, verticalSpacing: 6) {
+                    GridRow {
+                        Button(action: openZoom) { PhotoActionLabel("Zoom…", icon: "magnifyingglass") }
+                        Button(action: requestDelete) { PhotoActionLabel("Delete…", icon: "trash") }
+                            .disabled(!canDelete)
+                            .help(fromPhotos && !ReviewRemoval.photosLibraryAccessEnabled
+                                  ? "Photos deletion requires a build with Photos read/write access."
+                                  : "Remove this photo")
                     }
-                    Spacer()
-                    Button("Delete…", systemImage: "trash", action: requestDelete)
-                        .disabled(!canDelete)
-                        .help(fromPhotos && !ReviewRemoval.photosLibraryAccessEnabled
-                              ? "Photos deletion requires a build with Photos read/write access."
-                              : "Remove this photo")
+                    GridRow {
+                        Button(action: rotateLeft) { PhotoActionLabel("Rotate Left", icon: "rotate.left") }
+                            .disabled(!canRotate)
+                        Button(action: saveRotation) { PhotoActionLabel("Save Rotation", icon: "square.and.arrow.down") }
+                            .disabled(!canSaveRotation)
+                            .help(fromPhotos ? "Save the displayed rotation to Photos" : "Save the displayed rotation to this file")
+                    }
+                    if !fromPhotos {
+                        GridRow {
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([source.input.url])
+                            } label: {
+                                PhotoActionLabel("Show in Finder", icon: "folder")
+                            }
+                            SaveToPhotosButton(state: photosSaveState, url: source.input.url,
+                                               enabled: canRotate, save: saveToPhotos)
+                        }
+                    }
                 }
                 .font(.caption)
+                .controlSize(.small)
+                .buttonStyle(.bordered)
             }.padding(.horizontal,12).padding(.bottom,12)
         }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -627,6 +802,23 @@ struct PhotoCard: View {
     }
 }
 
+private struct PhotoActionLabel: View {
+    let title: String
+    let icon: String
+
+    init(_ title: String, icon: String) {
+        self.title = title
+        self.icon = icon
+    }
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity, minHeight: 18, alignment: .leading)
+    }
+}
+
 private struct SaveToPhotosButton: View {
     @ObservedObject var state: PhotosSaveState
     let url: URL
@@ -637,14 +829,8 @@ private struct SaveToPhotosButton: View {
         let saved = state.savedURLs.contains(url)
         let saving = state.activeURL == url
         Button(action: save) {
-            ZStack(alignment: .leading) {
-                // Reserve the same space for each state so saving doesn't
-                // invalidate the review's scroll and window layout.
-                Label("Saving to Photos…", systemImage: "photo.badge.plus").hidden()
-                Label(saved ? "Saved to Photos" : saving ? "Saving to Photos…" : "Save to Photos",
-                      systemImage: saved ? "checkmark.circle" : "photo.badge.plus")
-                    .lineLimit(1)
-            }
+            PhotoActionLabel(saved ? "Saved to Photos" : saving ? "Saving to Photos…" : "Save to Photos",
+                             icon: saved ? "checkmark.circle" : "photo.badge.plus")
         }
         .disabled(!enabled || saved || state.activeURL != nil || !ReviewImport.photosAddAccessEnabled)
         .help(ReviewImport.photosAddAccessEnabled ? "Copy this original file to Photos" : "Requires a build with Photos access")
@@ -666,11 +852,12 @@ struct NativeScale {
 
 struct ReviewWindow: View {
     @ObservedObject var model: ReviewModel
-    @ViewState private var boxes = false
+    @ViewState private var boxes = true
     @ViewState private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @ViewState private var showsProcessingTime = false
     @ViewState private var photosSelection: [PhotosPickerItem] = []
     @ViewState private var zoomSelection: ZoomSelection?
+    @ViewState private var showsScanner = false
     @ViewState private var deleteSelection: AnalyzedSource?
 
     private struct ZoomSelection: Identifiable {
@@ -715,10 +902,13 @@ struct ReviewWindow: View {
                             rotation: rotation, rotationSaved: model.wasRotationSaved(source),
                             rotateLeft: { model.rotateLeft(source) }, saveRotation: { model.saveRotation(source) },
                             canRotate: !model.busy, canSaveRotation: model.canSaveRotation(source),
-                            favorite: favoriteOverlay(for: source),
+                            favorite: favoriteOverlay(for: source), genres: model.genreControls(for: source),
                             openZoom: { zoomSelection = ZoomSelection(source: source, preview: rotation.savedSource ?? source,
                                                                        turns: rotation.pendingTurns) },
-                            requestDelete: { deleteSelection = source }, canDelete: model.canDelete(source),
+                            requestDelete: {
+                                if model.isPhotosSelection { model.delete(source) }
+                                else { deleteSelection = source }
+                            }, canDelete: model.canDelete(source),
                             saveToPhotos: { model.saveToPhotos(source) }, photosSaveState: model.photosSaveState)
                             .id(source.input.id)
                     }
@@ -744,42 +934,24 @@ struct ReviewWindow: View {
                     }
                 }
                 .listStyle(.sidebar)
-                .frame(maxHeight: .infinity)
-                .clipped()
-                VStack(alignment:.leading,spacing:8) {
-                    Text(model.savingFavorite ? "Saving Favorite…" : model.savingRotation ? "Saving rotation…" : model.deleting ? "Removing photo…" : model.status).font(.caption).foregroundStyle(.secondary)
-                    if let result = model.result {
-                        ForEach(["Top Pick","Review","Possible Cull"],id:\.self) { tier in
-                            HStack { Circle().fill(tierColor(tier)).frame(width:7,height:7)
-                                Text(tier == "Review" ? "Keep & Review" : tier)
-                                Spacer()
-                                Text("\(result.sources.indices.filter { result.photos[$0].tier == tier && !model.removedURLs.contains(result.sources[$0].input.url) }.count)")
-                            }.font(.caption)
-                        }
-                        if let timings = result.timings {
-                            Button("Processing time", systemImage: "clock") {
-                                showsProcessingTime.toggle()
-                            }
-                            .font(.caption)
-                            .popover(isPresented: $showsProcessingTime, arrowEdge: .trailing) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Processing time").font(.headline)
-                                    ForEach(["validating","analyzing","matching","ranking","verifying"],id:\.self) { stage in
-                                        HStack {
-                                            Text(timingLabel(stage)); Spacer()
-                                            Text(duration(timings[stage] ?? 0)).monospacedDigit()
-                                        }.font(.caption)
-                                    }
-                                }
-                                .padding()
-                                .frame(width: 220)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(alignment:.leading,spacing:8) {
+                        Text(model.savingFavorite ? "Saving Favorite…" : model.savingRotation ? "Saving rotation…" : model.deleting ? "Removing photo…" : model.status).font(.caption).foregroundStyle(.secondary)
+                        if let result = model.result {
+                            ForEach(["Top Pick","Review","Possible Cull"],id:\.self) { tier in
+                                HStack { Circle().fill(tierColor(tier)).frame(width:7,height:7)
+                                    Text(tier == "Review" ? "Keep & Review" : tier)
+                                    Spacer()
+                                    Text("\(result.sources.indices.filter { result.photos[$0].tier == tier && !model.removedURLs.contains(result.sources[$0].input.url) }.count)")
+                                }.font(.caption)
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(.bar)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .fixedSize(horizontal: false, vertical: true)
             }
             .navigationTitle("Framewise")
             .navigationSplitViewColumnWidth(min:180,ideal:220)
@@ -798,7 +970,9 @@ struct ReviewWindow: View {
                         }
                     }.padding().background(.bar)
                 }
-                if let result = model.result, model.sets.indices.contains(model.selectedSet) {
+                if let previews = model.incomingPreviews, !previews.isEmpty {
+                    ScanPreviewGrid(urls: previews)
+                } else if let result = model.result, model.sets.indices.contains(model.selectedSet) {
                     let members = model.sets[model.selectedSet]
                     Color.clear.frame(height: 1).accessibilityHidden(true)
                     GeometryReader { viewport in
@@ -819,19 +993,30 @@ struct ReviewWindow: View {
                     .clipped()
                     .background(Color(nsColor:.windowBackgroundColor))
                 } else {
-                    ContentUnavailableView {
-                        Label(model.running ? "Reviewing your photos" : "A clearer view of your photos",systemImage:"photo.stack")
-                    } description: {
-                        Text(model.running ? "Related sets and review suggestions will appear when analysis finishes." : "Choose up to 500 photos to find related sets and review focus and quality suggestions.")
-                    } actions: {
-                        if !model.running {
-                            if model.inputs.isEmpty {
-                                Button("Choose Files…",action:model.chooseFiles).buttonStyle(.borderedProminent)
-                                photosPicker(disabled: model.busy)
+                    if model.running, model.incomingPreviews == nil, !model.inputs.isEmpty {
+                        ScanPreviewGrid(urls: model.inputs)
+                    } else {
+                        ContentUnavailableView {
+                            Label(model.running ? "Reviewing your photos" : "A clearer view of your photos",systemImage:"photo.stack")
+                        } description: {
+                            Text(model.running ? "Related sets and review suggestions will appear when analysis finishes." : "Choose up to 500 photos to find related sets and review focus and quality suggestions.")
+                        } actions: {
+                            if !model.running {
+                                if model.inputs.isEmpty {
+                                    HStack(spacing: 10) {
+                                        Button("Choose Files…", systemImage: "plus", action: model.chooseFiles)
+                                            .buttonStyle(.borderedProminent)
+                                        photosPicker(disabled: model.busy)
+                                        Button("Scan Photos…", systemImage: "scanner") { showsScanner = true }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .disabled(model.busy)
+                                }
+                                else { Button("Scan Again",action:model.analyze).buttonStyle(.borderedProminent) }
                             }
-                            else { Button("Scan Again",action:model.analyze).buttonStyle(.borderedProminent) }
-                        }
-                    }.frame(maxWidth:.infinity,maxHeight:.infinity)
+                        }.frame(maxWidth:.infinity,maxHeight:.infinity)
+                    }
                 }
             }.navigationTitle("Framewise")
         }
@@ -841,7 +1026,28 @@ struct ReviewWindow: View {
                 // model still guards file selection, Photos selection and rescans.
                 Button("Choose Files…",systemImage:"plus",action:model.chooseFiles).disabled(toolbarBusy)
                 photosPicker(disabled: toolbarBusy)
+                Button("Scan Photos…", systemImage: "scanner") { showsScanner = true }.disabled(toolbarBusy)
                 Button("Scan Again",systemImage:"sparkle.magnifyingglass",action:model.analyze).disabled(model.inputs.isEmpty || toolbarBusy)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Processing time", systemImage: "clock") {
+                    showsProcessingTime.toggle()
+                }
+                .font(.caption)
+                .popover(isPresented: $showsProcessingTime, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Processing time").font(.headline)
+                        ForEach(["validating","analyzing","matching","ranking","verifying"],id:\.self) { stage in
+                            HStack {
+                                Text(timingLabel(stage)); Spacer()
+                                Text(duration(model.result?.timings?[stage] ?? 0)).monospacedDigit()
+                            }.font(.caption)
+                        }
+                    }
+                    .padding()
+                    .frame(width: 220)
+                }
+                .disabled(model.running || model.result?.timings == nil)
             }
         }
         .onChange(of: photosSelection) { _, selection in
@@ -849,23 +1055,22 @@ struct ReviewWindow: View {
             model.loadPhotos(selection)
             photosSelection = []
         }
+        .sheet(isPresented: $showsScanner) { ScannerPanel(review: model.reviewScannedPhotos) }
         .sheet(item: $zoomSelection) {
             ReviewZoom(model: model, source: $0.source, preview: $0.preview, turns: $0.turns)
         }
         .onChange(of: model.running) {
             if model.running { showsProcessingTime = false }
         }
-        .alert(model.isPhotosSelection ? "Move photo to Recently Deleted?" : "Move photo to Trash?",
+        .alert("Move photo to Trash?",
                isPresented: Binding(get: { deleteSelection != nil }, set: { if !$0 { deleteSelection = nil } }),
                presenting: deleteSelection) { source in
-            Button(model.isPhotosSelection ? "Delete Photo" : "Move to Trash", role: .destructive) {
+            Button("Move to Trash", role: .destructive) {
                 model.delete(source)
             }
             Button("Cancel", role: .cancel) {}
         } message: { source in
-            Text(model.isPhotosSelection
-                 ? "“\(source.input.url.lastPathComponent)” will move to Recently Deleted in Photos."
-                 : "“\(source.input.url.lastPathComponent)” will move to the Mac Trash.")
+            Text("“\(source.input.url.lastPathComponent)” will move to the Mac Trash.")
         }
         .alert("Couldn’t finish review", isPresented: Binding(
             get: { zoomSelection == nil && reviewError.wrappedValue },
@@ -951,6 +1156,7 @@ private struct ReviewWindowReference: NSViewRepresentable {
             }
             CommandGroup(replacing: .help) {
                 Button("Framewise Help") { showHelp(.scan) }
+                Button("Privacy Policy") { openWindow(id: "privacy") }
                 Divider()
                 ForEach(HelpTopic.allCases, id: \.self) { topic in
                     Button(topic.title) { showHelp(topic) }
@@ -958,12 +1164,39 @@ private struct ReviewWindowReference: NSViewRepresentable {
             }
         }
 
+        Settings { ScannerSettings() }
+
+        Window("Privacy Policy", id: "privacy") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Framewise Privacy Policy").font(.title.bold())
+                    Text(Self.privacyPolicy).textSelection(.enabled)
+                    if let address = Bundle.main.object(forInfoDictionaryKey: "FramewisePrivacyPolicyURL") as? String,
+                       let url = URL(string: address), url.scheme == "https" {
+                        Link("View privacy policy online", destination: url)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+            }
+            .frame(minWidth: 420, minHeight: 300)
+        }
+        .defaultSize(width: 560, height: 440)
+        .commandsRemoved()
+
         Window("Framewise Help", id: "help") {
             FramewiseHelp(topic: $helpTopic, query: $helpQuery)
                 .onAppear(perform: registerReviewWindowAction)
         }
         .defaultSize(width: 740, height: 460)
         .commandsRemoved()
+    }
+
+    private static var privacyPolicy: String {
+        guard let url = Bundle.main.url(forResource: "PrivacyPolicy", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8)
+        else { return "Framewise processes selected photos on your Mac." }
+        return text
     }
 
     private func registerReviewWindowAction() {

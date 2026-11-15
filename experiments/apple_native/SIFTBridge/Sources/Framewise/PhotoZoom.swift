@@ -5,6 +5,7 @@ struct PhotoZoom: View {
     let source: AnalyzedSource
     let turns: Int
     let favorite: FavoriteOverlay
+    let genres: GenreControls
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
     @ViewState private var image: CGImage?
@@ -28,6 +29,8 @@ struct PhotoZoom: View {
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding(12)
+            genres.padding(.horizontal, 12).padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             GeometryReader { viewport in
                 if let image {
                     let width = CGFloat(image.width) / displayScale
@@ -42,6 +45,7 @@ struct PhotoZoom: View {
                             .accessibilityLabel(source.input.url.lastPathComponent)
                     }
                     .defaultScrollAnchor(.center)
+                    .overlay(alignment: .topTrailing) { RawPreviewBadge(url: source.input.url) }
                     .overlay(alignment: .bottomLeading) {
                         favorite
                             .padding(.leading, max(0, (viewport.size.width - width * factor) / 2))
@@ -86,7 +90,7 @@ struct ReviewZoom: View {
         PhotoZoom(source: preview, turns: turns,
                   favorite: FavoriteOverlay(state: model.favorite(for: source), enabled: !model.busy) {
                       model.toggleFavorite(source)
-                  })
+                  }, genres: model.genreControls(for: source))
             .alert("Couldn’t change Favorite", isPresented: Binding(
                 get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
                 Button("OK") { model.error = nil }

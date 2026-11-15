@@ -74,6 +74,7 @@ public enum LivePhotoAnalysis {
     }
     public static func analyze(url: URL, autoRotate: Bool = true,
                                checkpoint: () throws -> Void,
+                               inspectImage: (CGImage) -> Void = { _ in },
                                preview: (Data, Int, Int) throws -> Void) throws -> Evidence {
         guard #available(macOS 15.0, iOS 18.0, *) else {
             throw ReviewError.invalid("Tier analysis requires macOS 15 / iOS 18 or newer")
@@ -143,6 +144,8 @@ public enum LivePhotoAnalysis {
                     path:url.path,dimension:dimension,detectors:detectors,ranking:ranking,checkpoint:checkpoint)
                 scales.append(scale)
                 if dimension == 1024 {
+                    inspectImage(image)
+                    try checkpoint()
                     let request = VNGenerateImageFeaturePrintRequest()
                     request.revision = 2; request.imageCropAndScaleOption = .scaleFit
                     try handler.perform([request])

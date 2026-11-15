@@ -1,0 +1,5 @@
+Framewise processes the photos you select on your Mac. Framewise does not collect personal data, send photos or analysis results to the developer, use analytics or advertising, or require an account.
+
+Framewise keeps review results in memory for the current session and uses temporary local copies to review Photos selections and stage edits or imports. Depending on your selection and permissions, Framewise can automatically save genre keywords and can apply Favorites, rotations, imports, or deletions you choose. Saved changes remain in the original file or Photos library until you change or remove them. The Photos app and iCloud handle any syncing you have enabled with Apple.
+
+You can revoke Photos access in macOS System Settings under Privacy & Security. You choose which disk files Framewise opens. You can remove embedded metadata with a compatible photo editor and manage saved Photos keywords in Photos. Use Trash or Recently Deleted to recover eligible items.

@@ -16,17 +16,28 @@ enum FavoriteContainer {
 
     /// With no requested change, only reads the packet. Structural ambiguity fails closed.
     static func process(_ data: Data, format: Format, favorite: Bool? = nil,
-                        receipt: String? = nil) throws -> (bytes: Data, packet: Data?) {
+                        receipt: String? = nil, genreAdditions: Set<String> = [],
+                        genreRemovals: Set<String> = []) throws -> (bytes: Data, packet: Data?, legacyKeywords: Set<String>?) {
+        let editsGenres = !genreAdditions.isEmpty || !genreRemovals.isEmpty
+        let writesXMP = favorite != nil || editsGenres
+        var legacyKeywords: Set<String>?
         var packet: Data?
         var seenPacket = false
         func xmp(_ original: Data?) throws -> Data? {
             guard !seenPacket else { throw unsafe }
             seenPacket = true
             packet = original
-            guard let favorite, original != nil || favorite || receipt != nil else { return original }
+            guard writesXMP, original != nil || favorite == true || receipt != nil || !genreAdditions.isEmpty
+                else { return original }
             let xml: FavoriteXMP
             do { xml = try FavoriteXMP(original) } catch { throw unsafe }
-            return try xml.update(favorite: favorite, receipt: receipt) ? xml.data : original
+            let changed: Bool
+            if let favorite {
+                changed = try xml.update(favorite: favorite, receipt: receipt)
+            } else {
+                changed = try xml.updateKeywords(adding: genreAdditions, removing: genreRemovals)
+            }
+            return changed ? xml.data : original
         }
 
         var edits: [(Range<Int>, Data)] = []
@@ -39,6 +50,7 @@ enum FavoriteContainer {
             guard data.starts(with: [0xff, 0xd8]) else { throw unsafe }
             var p = 2, firstScan: Int?
             var ended = false, entropy = false, hasPictureIndex = false
+            var sawPhotoshop = false
             var xmpEdit: (segment: Range<Int>, packet: Range<Int>, updated: Data)?
             while p < data.count {
                 if entropy {
@@ -60,7 +72,7 @@ enum FavoriteContainer {
                 let body = data[(p + 2)..<end]
                 if marker == 0xe1 && body.starts(with: jpegXMP) {
                     let packetRange = (body.startIndex + jpegXMP.count)..<end
-                    if let value = try xmp(Data(data[packetRange])), favorite != nil {
+                    if let value = try xmp(Data(data[packetRange])), writesXMP {
                         xmpEdit = (start..<end, packetRange, value)
                     }
                 } else if marker == 0xe2 && body.starts(with: "MPF\0".utf8) {
@@ -69,10 +81,22 @@ enum FavoriteContainer {
                     || marker == 0xeb {
                     // Extended XMP and JUMBF/signatures.
                     throw unsafe
-                } else if favorite == false && marker == 0xed && body.starts(with: photoshop) {
+                } else if marker == 0xed && body.starts(with: photoshop) {
+                    if editsGenres && sawPhotoshop { throw unsafe }
                     let original = Data(body.dropFirst(photoshop.count))
-                    let updated = try resources(original, removeIPTC: true, xmp: nil)
-                    if updated != original { edit(start..<end, try segment(marker, photoshop + updated)) }
+                    if !sawPhotoshop {
+                        // Read raw IIM separately from Image I/O's synthesized IPTC view.
+                        legacyKeywords = try? jpegLegacyKeywords(original)
+                    }
+                    sawPhotoshop = true
+                    if favorite == false || editsGenres {
+                        let updated = try resources(original, removeIPTC: favorite == false, xmp: nil,
+                                                    adding: genreAdditions, removing: genreRemovals,
+                                                    inspectIPTC: editsGenres ? { _ in
+                                                        guard legacyKeywords != nil else { throw unsafe }
+                                                    } : nil)
+                        if updated != original { edit(start..<end, try segment(marker, photoshop + updated)) }
+                    }
                 }
                 if marker == 0xda {
                     if firstScan == nil { firstScan = start }
@@ -81,10 +105,10 @@ enum FavoriteContainer {
                 p = end
             }
             guard ended, let firstScan else { throw unsafe }
-            if hasPictureIndex {
-                // MPF offsets can point to gain maps and other JPEGs after EOI.
+            if hasPictureIndex || !data[p...].allSatisfy({ $0 == 0 }) {
+                // MPF and camera maker notes can point to images after EOI.
                 // Change only the primary XMP bytes, without moving any offsets.
-                if favorite != nil {
+                if writesXMP {
                     guard edits.isEmpty, let xmpEdit, xmpEdit.packet.upperBound <= firstScan else { throw unsafe }
                     let original = Data(data[xmpEdit.packet])
                     if xmpEdit.updated != original {
@@ -92,8 +116,6 @@ enum FavoriteContainer {
                     }
                 }
             } else {
-                // Keep scanner padding after EOI. Unknown trailers may contain images.
-                guard data[p...].allSatisfy({ $0 == 0 }) else { throw unsafe }
                 if let xmpEdit {
                     edit(xmpEdit.segment, try segment(0xe1, jpegXMP + xmpEdit.updated))
                 } else if !seenPacket, let value = try xmp(nil) {
@@ -116,7 +138,7 @@ enum FavoriteContainer {
                           let languageEnd = body[(q + 2)...].firstIndex(of: 0),
                           let translatedEnd = body[(languageEnd + 1)...].firstIndex(of: 0) else { throw unsafe }
                     q = translatedEnd + 1
-                    if let value = try xmp(Data(body[q...])), favorite != nil {
+                    if let value = try xmp(Data(body[q...])), writesXMP {
                         edit(p..<end, chunk(Data(body[..<q]) + value))
                     }
                 } else if (type.elementsEqual("tEXt".utf8) || type.elementsEqual("zTXt".utf8))
@@ -142,7 +164,7 @@ enum FavoriteContainer {
             guard let length = data.number(p, 4), length <= data.count - p - 4 else { throw unsafe }
             let end = p + 4 + length
             let updated = try resources(Data(data[(p + 4)..<end]), removeIPTC: favorite == false, xmp: xmp)
-            if favorite != nil {
+            if writesXMP {
                 guard updated.count <= Int(UInt32.max) else { throw unsafe }
                 edit(p..<end, Data.number(updated.count, 4) + updated)
             }
@@ -209,13 +231,13 @@ enum FavoriteContainer {
                             return result
                         }
                         let iim = ordered(original)
-                        var filtered = try iptc(iim)
+                        var filtered = try iptc(iim, adding: [], removing: [FileFavorite.keyword])
                         filtered += Data(repeating: 0, count: (4 - filtered.count % 4) % 4)
                         updated = ordered(filtered)
-                    } else { updated = try iptc(original) }
+                    } else { updated = try iptc(original, adding: [], removing: [FileFavorite.keyword]) }
                 default: updated = try resources(original, removeIPTC: true, xmp: nil)
                 }
-                if favorite != nil, let updated, updated != original {
+                if writesXMP, let updated, updated != original {
                     guard updated.count <= Int(UInt32.max) else { throw unsafe }
                     edit((p + 4)..<(p + 12), Data.number(updated.count / (type == 4 ? 4 : 1), 4, little) + (try field(updated)))
                 }
@@ -258,7 +280,7 @@ enum FavoriteContainer {
 
         var updated = data
         for (range, value) in edits.sorted(by: { $0.0.lowerBound > $1.0.lowerBound }) { updated.replaceSubrange(range, with: value) }
-        return (updated, packet)
+        return (updated, packet, legacyKeywords)
     }
 
     private static func fixedSizeXMP(_ updated: Data, replacing original: Data) throws -> Data {
@@ -299,11 +321,24 @@ enum FavoriteContainer {
         return Data.number(body.count, 4) + typed + Data.number(Int(crc), 4)
     }
 
-    private static func iptc(_ data: Data) throws -> Data {
-        var p = 0, result = Data()
+    private static func jpegLegacyKeywords(_ data: Data) throws -> Set<String>? {
+        var keywords: Set<String>?
+        _ = try resources(data, removeIPTC: false, xmp: nil, inspectIPTC: { payload in
+            guard keywords == nil else { throw unsafe }
+            var values: Set<String> = []
+            _ = try iptc(payload, adding: [], removing: [], inspect: { values.insert($0) })
+            keywords = values
+        })
+        return keywords
+    }
+
+    private static func iptc(_ data: Data, adding: Set<String>, removing: Set<String>,
+                             inspect: ((String) -> Void)? = nil) throws -> Data {
+        var p = 0, result = Data(), trailer = Data()
+        var missing = adding
         while p < data.count {
             if data.count - p <= 3 && data[p...].allSatisfy({ $0 == 0 }) {
-                result += data[p...]
+                trailer = Data(data[p...])
                 break
             }
             guard data[p] == 0x1c, let size = data.number(p + 3, 2) else { throw unsafe }
@@ -316,16 +351,23 @@ enum FavoriteContainer {
             }
             guard header <= data.count - p, length <= data.count - p - header else { throw unsafe }
             let end = p + header + length
-            if data[p + 1] != 2 || data[p + 2] != 25
-                || !data[(p + header)..<end].elementsEqual(FileFavorite.keyword.utf8) {
-                result += data[p..<end]
-            }
+            let keyword = data[p + 1] == 2 && data[p + 2] == 25
+                ? String(data: data[(p + header)..<end], encoding: .ascii) : nil
+            if let keyword { missing.remove(keyword); inspect?(keyword) }
+            if keyword.map(removing.contains) != true { result += data[p..<end] }
             p = end
         }
-        return result
+        for keyword in missing.sorted() {
+            let bytes = Data(keyword.utf8)
+            guard bytes.count <= 64, keyword.utf8.allSatisfy({ $0 < 128 }) else { throw unsafe }
+            result += Data([0x1c, 2, 25]) + Data.number(bytes.count, 2) + bytes
+        }
+        return result + trailer
     }
 
-    private static func resources(_ data: Data, removeIPTC: Bool, xmp: ((Data?) throws -> Data?)?) throws -> Data {
+    private static func resources(_ data: Data, removeIPTC: Bool, xmp: ((Data?) throws -> Data?)?,
+                                  adding: Set<String> = [], removing: Set<String> = [],
+                                  inspectIPTC: ((Data) throws -> Void)? = nil) throws -> Data {
         var p = 0, records: [(header: Data, id: Int, value: Data, padding: Data)] = []
         var sawXMP = false, digest: Data?
         while p < data.count {
@@ -338,11 +380,14 @@ enum FavoriteContainer {
             }
             let end = sizeOffset + 4 + length
             var value = Data(data[(sizeOffset + 4)..<end])
+            if id == 0x0404 { try inspectIPTC?(value) }
             if id == 0x0424, let xmp {
                 sawXMP = true
                 value = try xmp(value) ?? value
-            } else if id == 0x0404 && removeIPTC {
-                let updated = try iptc(value)
+            } else if id == 0x0404 && (removeIPTC || !adding.isEmpty || !removing.isEmpty) {
+                let additions = value.contains(where: { $0 >= 128 }) ? [] : adding
+                let updated = try iptc(value, adding: additions,
+                    removing: removeIPTC ? [FileFavorite.keyword] : removing)
                 if updated != value {
                     guard digest == nil else { throw unsafe }
                     digest = Data(Insecure.MD5.hash(data: updated))

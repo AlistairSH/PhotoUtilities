@@ -48,7 +48,7 @@ previous state intact and reports the error.
 | Source | Where the Favorite is kept |
 | --- | --- |
 | JPEG, PNG, single-image classic TIFF, PSD | Embedded `Framewise:Favorite` in XMP; existing IPTC keywords are recognized and the exact Favorite is also removed from IPTC when clearing it. |
-| HEIC/HEIF, RAW, or a layout that cannot be updated safely | In this review only, including **Scan Again**. A clock badge marks the heart. |
+| HEIC/HEIF, RAW, or a layout that cannot be updated safely | In this review only, including **Scan Again**. Hover over the heart for details. |
 | Apple Photos library | Native Photos Favorite via PhotoKit, with the Photos-enabled build and library access. |
 
 For disk files, Framewise uses Image I/O to read and verify metadata. It edits

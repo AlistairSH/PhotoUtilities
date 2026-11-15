@@ -17,7 +17,7 @@ selected images from iCloud if they aren’t stored on your Mac.
    and RAW images that macOS can decode as a single image. Set **Auto-rotate**
    before selecting if you want to change how Framewise orients its previews.
 2. Scanning starts automatically. **Stop Scan** cancels loading or analysis,
-   and **Scan Again** reruns the selection. **Processing time** in the sidebar
+   and **Scan Again** reruns the selection. **Processing time** in the toolbar
    shows the duration of each analysis phase after a scan.
 3. Open a related set or **Ungrouped** in the sidebar. Use **Subject boxes**,
    focus notes, and **Zoom…** to inspect a photo at full resolution. **Show in
@@ -33,13 +33,42 @@ selected images from iCloud if they aren’t stored on your Mac.
    In the Photos-enabled build below, library items go to **Recently Deleted**
    after macOS grants Photos access. Tier suggestions never remove photos.
 
+Framewise automatically suggests genres on your Mac. A photo can have several
+genres, and uncertain photos can stay blank. Use **Add Genre** or the remove
+button on a card or in **Zoom…**. Framewise saves genres as embedded IPTC
+Keywords where it can verify the file update, or as native Photos keywords when
+it has library access. RAW, HEIC and unsafe layouts show a review-only message.
+Framewise preserves existing user keywords when it cannot verify ownership.
+
 Review results are held for the current app session. Open **Help → Framewise
 Help** to search for topics, or **Window → Show Framewise** to bring back the
 review window.
 
+### Scan printed photos
+
+Choose **Scan Photos…** in Framewise for Mac. The **Scan with Image Capture**
+menu lists flatbed scanners macOS discovers over USB or the local network.
+Output goes to Downloads by default. Use **Change…** to select another folder,
+or **Add Saved Sheet…** to process a sheet captured separately.
+
+Under **Framewise → Settings**, enable external SANE in the local build to
+switch the scan button to **Scan with SANE**. It uses installed `scanimage` at
+600 dpi, TIFF, and 48-bit color by default. Set the resolution, format, and mode in Settings. JPEG supports the 8-bit-per-channel modes. Image Capture uses the color
+depth exposed by the macOS driver.
+
+Choose **Single photo** for a scan already cropped to one print,
+**Separate prints** for spaced prints on a uniform contrasting background, or
+**Polaroids** for one to four separated bordered prints. Framewise keeps each
+sheet master, saves extracted TIFFs, and keeps uncorrected Polaroid crops alongside
+the corrected copies when correction is enabled. Turn off **Apply color
+correction to Polaroids** in Settings to keep the extracted colors while
+still splitting and rotating the prints. Add as many sheets as needed, then choose **Review Photos**
+to compare them as a single batch. The normal review aligns ordinary print
+previews when it finds clear orientation evidence.
+
 ## Build and run
 
-Framewise requires macOS 15 or later. The local build uses Apple Command Line
+Framewise requires macOS 27 or later and the macOS 27 SDK to build. The local build uses Apple Command Line
 Tools and the pinned OpenCV 4.11.0 static libraries. Follow the [OpenCV build
 instructions](experiments/apple_native/SIFTBridge/README.md#pin-and-build-the-macos-dependency)
 to prepare the dependency. Then run from the repository root:

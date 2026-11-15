@@ -155,6 +155,45 @@ func checkFavorites(in folder: URL) throws {
         }
     }
 
+    let genreFile = folder.appendingPathComponent("genres.jpg")
+    try makeImage(genreFile, .jpeg, keywords: ["Keep me", "Street", FileFavorite.keyword])
+    let genrePayload = try protectedBytes(Data(contentsOf: genreFile), ext: "jpg")
+    let genreOriginal = try hash(genreFile)
+    let newGenres: Set<String> = ["Landscape & Nature", "Architecture & Real Estate"]
+    let genres = try FileFavorite.writeGenres(adding: newGenres.union(["Street"]), removing: [],
+                                               to: genreFile, expectedDigest: genreOriginal)
+    try require(genres.inserted == newGenres, "A pre-existing genre was claimed by Framewise")
+    let storedGenres = try FavoriteContainer.process(Data(contentsOf: genreFile), format: .jpeg)
+    try require(newGenres.isSubset(of: Set(try FavoriteXMP(storedGenres.packet).keywords())),
+                "Genres did not reach embedded XMP")
+    try require(storedGenres.legacyKeywords.map {
+        newGenres.union(["Keep me", "Street", FileFavorite.keyword]).isSubset(of: $0)
+    } == true, "Genres did not merge with legacy IPTC")
+    try require(load(genreFile).isFavorite, "Genre write lost Favorite")
+    let repeated = try FileFavorite.writeGenres(adding: newGenres, removing: [],
+                                                 to: genreFile, expectedDigest: genres.digest)
+    try require(repeated.digest == genres.digest && repeated.inserted.isEmpty, "Duplicate genre changed the file")
+    try mustFail("Genre write accepted a stale digest") {
+        _ = try FileFavorite.writeGenres(adding: ["Macro"], removing: [],
+                                         to: genreFile, expectedDigest: genreOriginal)
+    }
+    let removed = try FileFavorite.writeGenres(adding: [], removing: ["Landscape & Nature"],
+                                                to: genreFile, expectedDigest: genres.digest)
+    let retained = try FileFavorite.writeGenres(adding: [], removing: [],
+                                                 to: genreFile, expectedDigest: removed.digest)
+    try require(!retained.existing.contains("Landscape & Nature") &&
+                ["Keep me", "Street", "Architecture & Real Estate", FileFavorite.keyword].allSatisfy(retained.existing.contains),
+                "Removing one genre changed unrelated keywords")
+    try require(protectedBytes(Data(contentsOf: genreFile), ext: "jpg") == genrePayload, "Genre edits changed JPEG scans")
+
+    let removedExisting = try FileFavorite.writeGenres(adding: [], removing: ["Street"],
+        to: genreFile, expectedDigest: retained.digest)
+    let reopened = try FileFavorite.writeGenres(adding: [], removing: [],
+        to: genreFile, expectedDigest: removedExisting.digest)
+    try require(!reopened.existing.contains("Street") &&
+                ["Keep me", "Architecture & Real Estate", FileFavorite.keyword].allSatisfy(reopened.existing.contains),
+                "Explicit removal did not remove a pre-existing genre while preserving other keywords")
+
     let jpeg = folder.appendingPathComponent("legacy.jpg")
     let sidecar = FileFavorite.sidecarURL(jpeg)
     try makeImage(jpeg, .jpeg)
